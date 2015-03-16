@@ -37,8 +37,8 @@ class pointCurrentState(Widget):
         with self.canvas:
             self.color = Color(1, 0, 0)
             self.d = 15.
-            self.current_X_pos = 400-self.d/2
-            self.current_Y_pos = 300-self.d/2
+            self.current_X_pos = 400 - self.d/2
+            self.current_Y_pos = 300 - self.d/2
             
             #Initial state at (0,0)
             self.previous_point = Ellipse(pos=(self.current_X_pos, self.current_Y_pos), size=(self.d, self.d))
@@ -70,9 +70,9 @@ class pointCurrentState(Widget):
         update_X_pos = update_position.pose.position.x
         update_Y_pos = update_position.pose.position.y
         
-        # Transform the points to the correspondent xy-space.
-        update_X_pos = update_X_pos * 800
-        update_Y_pos = update_Y_pos * 600
+        # Transform the points into the correspondent xy-space.
+        update_X_pos = (((update_X_pos / 2) * 800) + 400) - self.d/2
+        update_Y_pos = (((update_Y_pos / 2) * 600) + 300) - self.d/2
         
         # Does not update if the point is reaching the border of the map.
         if (update_X_pos <= 800 and update_Y_pos <= 600 and update_X_pos >= 0 and update_Y_pos >= 0):
@@ -81,8 +81,7 @@ class pointCurrentState(Widget):
             
             # Callback to update the point position
             self.plotPoint()
-                        
-            
+                                    
         else:
             print "The update state reached the border. So, no update is possible"
             
