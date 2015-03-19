@@ -3,6 +3,7 @@
 Created on Fri Mar 13 11:27:41 2015
 
 @author: ferran
+original idea: https://github.com/davesnowdon/nao-emotional-framework
 """
 
 from kivy.app import App
