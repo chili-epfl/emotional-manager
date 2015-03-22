@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python
+#coding: utf-8
 """
 Created on Tue Mar 10 17:37:34 2015
 
@@ -25,7 +26,7 @@ class emotion_manager():
     
     def __init__(self):
         # Variables to store module instances
-        self.nb_features
+        self.nb_features = 4
         self.features = np.zeros(self.nb_features)
         
         rospy.init_node('emotion_manager', anonymous=True)
@@ -37,10 +38,10 @@ class emotion_manager():
         rospy.Subscriber("smileRobot", Int16, self.smile_robot_callback)
     
         # Normalizes the values comming from the different feature nodes
-        self.normFeatures = self.normalize()
+        self.normFeatures = self.normalize(self.features)
     
         # Weight the features depending on its importance
-        self.weightedFeatures = self.weighting(self.normFeatures)
+        self.weightedFeatures = self.weighting(self.normFeatures, self.normFeatures)
     
         # Simply keeps python from exiting until this node is stopped
         rospy.spin()
@@ -64,10 +65,10 @@ class emotion_manager():
         
        
     def normalize(self, features):
-    
+        normFeatures = np.zeros(self.nb_features)
         return normFeatures 
                  
-    def weighting(features, weights = [0.25, 0.25, 0.25, 0.25]):
+    def weighting(self, features = [0, 0, 0, 0], weights = [0.25, 0.25, 0.25, 0.25]):
         
         # Weights order: looking_to_robot|activity_time|repetitions|recognition
         # by default the same 0.25
