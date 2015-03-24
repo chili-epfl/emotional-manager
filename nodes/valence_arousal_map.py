@@ -15,7 +15,7 @@ from kivy.uix.label import Label
 
 import rospy
 
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
 
 
 class emotionWidget(Widget):
@@ -47,7 +47,7 @@ class pointCurrentState(Widget):
                     
         # Initialize the subscriber, the topic and name it.
         topic = 'update_position'
-        rospy.Subscriber(topic, PoseStamped, self.updateCurrentPosition)
+        rospy.Subscriber(topic, Point, self.updateCurrentPosition)
         
        
     """
@@ -69,8 +69,8 @@ class pointCurrentState(Widget):
         rospy.loginfo(rospy.get_caller_id() + "I heard something")
         
         update_position = data
-        update_X_pos = update_position.pose.position.x
-        update_Y_pos = update_position.pose.position.y
+        update_X_pos = update_position.x
+        update_Y_pos = update_position.y
         
         # Transform the points into the correspondent xy-space.
         update_X_pos = (((update_X_pos / 2) * 800) + 400) - self.d/2
