@@ -4,11 +4,13 @@ Emotion-action framework for nao. Takes a point in a 2D map (valence and arousal
 
 ## Installation
 
-So far does not require installation
+Install as any other ROS package
 
 TODO: ros launch file
 
 ## Usage
 
-Execute both ros-nodes in separate terminals taking into account NAO's ip adress
+Set NAO's ip adress
+
+Execute: `roslaunch emotional_manager nao_emotional.launch`
 
