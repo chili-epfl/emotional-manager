@@ -247,6 +247,10 @@ int main(int argc, char **argv)
                     lookAt_pub.publish(msg);
                     contact=false;
                 }
+                if(contact){
+                    //cout << "contact !!" << endl;
+                    contacts.push_back(pose_model(cimg, faces[i]));
+                }
 
                 //guess mouth
                 auto mouth_left_x = pose_model(cimg, faces[i]).part(48).x();
@@ -303,13 +307,6 @@ int main(int argc, char **argv)
                     ROS_INFO("EMA: %f",diff_EMA);
                     msgInt.data = diff_EMA;
                     movement_pub.publish(msgInt);
-                }
-
-
-
-                if(contact){
-                    //cout << "contact !!" << endl;
-                    contacts.push_back(pose_model(cimg, faces[i]));
                 }
 
                 // Compute size of the head
