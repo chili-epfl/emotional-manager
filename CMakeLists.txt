@@ -6,11 +6,18 @@ project(emotional_manager)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   rospy
+  roscpp
   std_msgs
   geometry_msgs
   nav_msgs
   message_generation
 )
+
+find_package(OpenCV REQUIRED)
+
+set(DLIB_PATH "" CACHE STRING "Path to DLIB")
+include(${DLIB_PATH}/cmake)
+#include(/home/ferran/src/dlib-18.14/dlib/cmake )
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -28,21 +35,19 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate services in the 'srv' folder
 #add_service_files(
 #   FILES
-#
 #)
 
 ## Generate messages in the 'msg' folder
 #add_message_files(
 #   FILES
-#
 #)
 
 ## Generate added messages and services with any dependencies listed here
-generate_messages(
-   DEPENDENCIES
-   std_msgs
-   geometry_msgs
-)
+#generate_messages(
+#   DEPENDENCIES
+#   std_msgs
+#   geometry_msgs
+#)
 
 ###################################
 ## catkin specific configuration ##
@@ -57,6 +62,10 @@ catkin_package(
  CATKIN_DEPENDS message_runtime 
 )
 
+# using c++11 :
+#--------------
+add_definitions(-std=c++11)
+
 ###########
 ## Build ##
 ###########
@@ -66,6 +75,7 @@ catkin_package(
 # include_directories(include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 #############
@@ -83,10 +93,17 @@ include_directories(
 
 install(DIRECTORY include/
    DESTINATION ${CATKIN_PACKAGE_PYTHON_DESTINATION}
-)
+ )
 ## Mark other files for installation (e.g. launch and bag files, etc.) 
  install(FILES
 launch/nao_emotional.launch
    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
+ )
+
+add_executable(vision src/vision.cpp)
+target_link_libraries(vision dlib ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+install(TARGETS
+   vision
+   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
  )
 

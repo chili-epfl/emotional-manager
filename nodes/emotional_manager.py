@@ -8,7 +8,7 @@ Created on Tue Mar 10 17:37:34 2015
 
 import sys
 import rospy
-from std_msgs.msg import Int16, Int32, String
+from std_msgs.msg import Int16, Int32, String, Empty
 from geometry_msgs.msg import Point
 
 from naoqi import ALProxy
@@ -29,23 +29,31 @@ class emotion_manager():
                                     'surprise':{'x':0.00,'y':0.50},
                                     'disgust':{'x':-0.4,'y':0.25},
                                     'thinking':{'x':0.25,'y':0.00},
-                                    'neutral':{'x':0.00,'y':0.00}}
+                                    'neutral':{'x':0.00,'y':0.00},
+                                    'activation':{'x':0.00,'y':1.00},
+                                    'deactivation':{'x':0.00,'y':-1.00},
+                                    'pleasant':{'x':1.00,'y':0.00},
+                                    'unpleasant':{'x':-1.00,'y':0.00}}
                              
         self.current_position = {'x':0,'y':0}
                     
-        self.features = {'time_activity':{'x':0.00,'y':0.00}, 
+        self.features = {'lookAt':{'x':0.00,'y':0.00},
+                         'time_activity':{'x':0.00,'y':0.00}, 
                          'nb_repetitions':{'x':0.00,'y':0.00}, 
-                         'smile':{'x':0.00,'y':0.00}, 
-                         'look_robot':{'x':0.00,'y':0.00}}
+                         'smile':{'x':0.00,'y':0.00},                          
+                         'movement':{'x':0.00,'y':0.00},
+                         'sizeHead':{'x':0.00, 'y':0.00}}
         
         self.prev_time = 1
         self.pub_direction = rospy.Publisher('update_position', Point, queue_size=10)
         self.nb_features = 4
         
-        rospy.Subscriber("lookRobot", String, self.look_robot_callback)
+        rospy.Subscriber("lookAt", String, self.look_robot_callback)
         rospy.Subscriber("timeSpendActivity", Int32, self.time_callback)
-        #rospy.Subscriber("numberRepetitions", Int16, repetitions_callback)
-        #rospy.Subscriber("smileRobot", Int16, self.smile_robot_callback)
+        rospy.Subscriber("numberRepetitions", Int16, self.repetitions_callback)
+        rospy.Subscriber("smile", Empty, self.smile_robot_callback)
+        rospy.Subscriber("movement", Int16, self.movement_callback)
+        rospy.Subscriber("sizeHead", Int16, self.proximity_callback)
         
         # Boundaries of the map
         self.max_n = 1
@@ -66,36 +74,48 @@ class emotion_manager():
         
         return point
            
-    def weighting(self, weights = [0.25, 0.25, 0.25, 0.25]):        
+    def weighting(self, weights = [0.25, 0.25, 0.25, 0.25, 0.25, 0.25]):        
         # Weights order: looking_to_robot|activity_time|repetitions|recognition        
         weightedSumFeatures = {'x':0,'y':0}
         # let us sum all features considering the weights
         i = -1
         for point in self.features.itervalues():
-            weightedSumFeatures['x'] = weightedSumFeatures['x'] + point['x'] 
-            weightedSumFeatures['y'] = weightedSumFeatures['y'] + point['y'] 
+            weightedSumFeatures['x'] = weightedSumFeatures['x'] + (point['x'] * weights[i+1])
+            weightedSumFeatures['y'] = weightedSumFeatures['y'] + (point['y'] * weights[i+1])
             i = i+1
         
         self.current_position = weightedSumFeatures
+        
+    
+    def clampRatio(self, cx, cy):
+        clamped_number = max(self.min_n,  min(cx, self.max_n));
+        ratio_x = 1.0*float(clamped_number)/cx
+        clamped_number = max(self.min_n,  min(cy, self.max_n));
+        ratio_y = 1.0*float(clamped_number)/cy
+        ratio = min (ratio_x, ratio_y);
+        
+        return (ratio*cx)*self.step_size, (ratio*cy)*self.step_size
     
     
     #----------------------------------------------CALLLBACKS----------------------------------------------
 
     def look_robot_callback(self, data):
-        rospy.loginfo(rospy.get_caller_id() + "The children is looking at the robot: %s", data.data)
-                
+        rospy.loginfo(rospy.get_caller_id() + " The children is looking: %s", data.data)
         #If the child does not give attention to the robot we assume is bored
-        if data.data == 'right' or data.data == 'left' or data.data == 'up':
-            
+        
+        looking = data.data
+        if looking == "right" or looking == "left" or looking == "up":
             #Calculate the new vector to move towards
             direction_x = self.emotional_dictionary['bored']['x'] - self.current_position['x']
             direction_y = self.emotional_dictionary['bored']['y'] - self.current_position['y']                       
             
             sx, sy = self.clampRatio(direction_x, direction_y)
             
-            self.features['look_robot']['x'] = self.features['time_activity']['x'] + sx
-            self.features['look_robot']['y'] = self.features['time_activity']['y'] + sy
-        
+            self.features['lookAt']['x'] = self.features['lookAt']['x'] + sx
+            self.features['lookAt']['y'] = self.features['lookAt']['y'] + sy
+            rospy.loginfo("X feature value: %s",sx)
+            rospy.loginfo("Y feature value: %s", sy)
+
         #If not we assume is happy        
         else:
             #Calculate the new vector to move towards
@@ -104,8 +124,8 @@ class emotion_manager():
             
             sx, sy = self.clampRatio(direction_x, direction_y)
             
-            self.features['look_robot']['x'] = self.features['time_activity']['x'] + sx
-            self.features['look_robot']['y'] = self.features['time_activity']['y'] + sy
+            self.features['lookAt']['x'] = self.features['lookAt']['x'] + sx
+            self.features['lookAt']['y'] = self.features['lookAt']['y'] + sy
             
         # Weight the features depending on its importance
         self.weighting(self)
@@ -141,24 +161,79 @@ class emotion_manager():
 
     def repetitions_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "Repetitions performed by the children: %s", data.data)
-        self.features[2] = data.data
+        
+        #Calculate the new vector to move towards
+        direction_x = self.emotional_dictionary['bored']['x'] - self.current_position['x']
+        direction_y = self.emotional_dictionary['bored']['y'] - self.current_position['y']
+        
+        sx, sy = self.clampRatio(direction_x, direction_y)
+            
+        #When the counter is resetted allows to start again from the beginning
+        if data.data > self.prev_time:
+            self.features['nb_repetitions']['x'] = self.features['nb_repetitions']['x'] + sx
+            self.features['nb_repetitions']['y'] = self.features['nb_repetitions']['y'] + sy
+            self.prev_time = data.data
+            
+        # Weight the features depending on its importance, pack and send
+        self.weighting(self)
+        msg = self.buildMessage()
+        self.pub_direction.publish(msg)
 
         
     def smile_robot_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "The children is smiling at the robot: %s", data.data)
-        self.features[3] = data.data
-           
-     
-    def clampRatio(self, cx, cy):
-        clamped_number = max(self.min_n,  min(cx, self.max_n));
-        ratio_x = 1.0*clamped_number/cx
-        clamped_number = max(self.min_n,  min(cy, self.max_n));
-        ratio_y = 1.0*clamped_number/cy
-        ratio = min (ratio_x, ratio_y);
         
-        return (ratio*cx)*self.step_size, (ratio*cy)*self.step_size
-     
-     
+        #Calculate the new vector to move towards
+        direction_x = self.emotional_dictionary['happiness']['x'] - self.current_position['x']
+        direction_y = self.emotional_dictionary['happiness']['y'] - self.current_position['y']
+        
+        sx, sy = self.clampRatio(direction_x, direction_y)
+        
+        self.features['smile']['x'] = self.features['smile']['x'] + sx
+        self.features['smile']['y'] = self.features['smile']['y'] + sy
+        
+        # Weight the features depending on its importance, pack and send
+        self.weighting(self)
+        msg = self.buildMessage()
+        self.pub_direction.publish(msg)
+        
+        
+    def movement_callback(self, data):
+        rospy.loginfo(rospy.get_caller_id() + "The children is moving: %s", data.data)
+        
+        #Calculate the new vector to move towards
+        direction_x = self.emotional_dictionary['activation']['x'] - self.current_position['x']
+        direction_y = self.emotional_dictionary['activation']['y'] - self.current_position['y']
+        
+        sx, sy = self.clampRatio(direction_x, direction_y)
+        
+        self.features['movement']['x'] = self.features['movement']['x'] + sx
+        self.features['movement']['y'] = self.features['movement']['y'] + sy
+        
+        # Weight the features depending on its importance, pack and send
+        self.weighting(self)
+        msg = self.buildMessage()
+        self.pub_direction.publish(msg)
+
+              
+    def proximity_callback(self, data):
+        rospy.loginfo(rospy.get_caller_id() + "The children is close to the robot: %s", data.data)
+        
+        #Calculate the new vector to move towards
+        direction_x = self.emotional_dictionary['fear']['x'] - self.current_position['x']
+        direction_y = self.emotional_dictionary['fear']['y'] - self.current_position['y']
+        
+        sx, sy = self.clampRatio(direction_x, direction_y)
+        
+        self.features['sizeHead']['x'] = self.features['sizeHead']['x'] + sx
+        self.features['sizeHead']['y'] = self.features['sizeHead']['y'] + sy
+        
+        # Weight the features depending on its importance, pack and send
+        self.weighting(self)
+        msg = self.buildMessage()
+        self.pub_direction.publish(msg)
+
+          
 def main():
     
     myBroker = ALBroker("myBroker",
