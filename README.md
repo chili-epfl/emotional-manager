@@ -6,8 +6,6 @@ Emotion-action framework for nao. Takes a point in a 2D map (valence and arousal
 
 Install as any other ROS package
 
-TODO: ros launch file
-
 ## Usage
 
 Set NAO's ip adress
