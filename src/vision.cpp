@@ -1,34 +1,14 @@
-// The contents of this file are in the public domain. See LICENSE_FOR_EXAMPLE_PROGRAMS.txt
 /*
-
     This example program shows how to find frontal human faces in an image and
-    estimate their pose.  The pose takes the form of 68 landmarks.  These are
+    estimate their pose.  The pose takes the form of 68 landmarks. These are
     points on the face such as the corners of the mouth, along the eyebrows, on
-    the eyes, and so forth.  
-    
-
-    This example is essentially just a version of the face_landmark_detection_ex.cpp
-    example modified to use OpenCV's VideoCapture object to read from a camera instead 
-    of files.
-
-
-    Finally, note that the face detector is fastest when compiled with at least
-    SSE2 instructions enabled.  So if you are using a PC with an Intel or AMD
-    chip then you should enable at least SSE2 instructions.  If you are using
-    cmake to compile this program you can enable them by using one of the
-    following commands when you create the build project:
-        cmake path_to_dlib_root/examples -DUSE_SSE2_INSTRUCTIONS=ON
-        cmake path_to_dlib_root/examples -DUSE_SSE4_INSTRUCTIONS=ON
-        cmake path_to_dlib_root/examples -DUSE_AVX_INSTRUCTIONS=ON
-    This will set the appropriate compiler options for GCC, clang, Visual
-    Studio, or the Intel compiler.  If you are using another compiler then you
-    need to consult your compiler's manual to determine how to enable these
-    instructions.  Note that AVX is the fastest but requires a CPU from at least
-    2011.  SSE4 is the next fastest and is supported by most current machines.  
+    the eyes, and so forth.
 */
 
 #include <dlib/opencv.h>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/video/tracking.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <dlib/image_processing/frontal_face_detector.h>
 #include <dlib/image_processing/render_face_detections.h>
 #include <dlib/gui_widgets.h>
@@ -37,19 +17,56 @@
 #include "std_msgs/String.h"
 #include "std_msgs/Int16.h"
 #include "std_msgs/Empty.h"
+#include "std_msgs/Float32.h"
+
 #include <sstream>
 #include <vector>
 #include <cmath>
+#include <iostream>
+#include <ctype.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+#include <string>
+
+#define MAX_COUNT 100
+char imageFileName[32];
+long imageIndex = 0;
+char keyPressed;
+bool contact = true;
 
 using namespace dlib;
 using namespace std;
 
+float t = 1;
+std::vector<float> EMA(6,1);
 
-// Returns 1 if the lines intersect, otherwise 0. In addition, if the lines
-// intersect the intersection point may be stored in the floats i_x and i_y.
-char get_line_intersection(float p0_x, float p0_y, float p1_x, float p1_y,
-    float p2_x, float p2_y, float p3_x, float p3_y/*, float *i_x, float *i_y*/)
-{
+
+// Create a dictionary for the markers.
+std::map<string, int> partToPoint = {
+    {"nose", 30},
+    {"right_side", 2},
+    {"left_side", 14},
+    {"eyebrow_right", 21},
+    {"eyebrow_left", 22},
+    {"mouth_up", 51},
+    {"mouth_down", 57},
+    {"mouth_right", 48},
+    {"mouth_left", 54}
+};
+
+// Return the point correspondent to the dictionary marker.
+cv::Point2f getPointFromPart(shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face, string name){
+    cv::Point2f point;
+    point.x = pose_model(cimg, face).part(partToPoint[name]).x();
+    point.y = pose_model(cimg, face).part(partToPoint[name]).y();
+
+    return point;
+}
+
+// Returns 1 if the lines intersect, otherwise 0.
+bool get_line_intersection(float p0_x, float p0_y, float p1_x, float p1_y,
+                           float p2_x, float p2_y, float p3_x, float p3_y){
     float s1_x, s1_y, s2_x, s2_y;
     s1_x = p1_x - p0_x;     s1_y = p1_y - p0_y;
     s2_x = p3_x - p2_x;     s2_y = p3_y - p2_y;
@@ -58,17 +75,218 @@ char get_line_intersection(float p0_x, float p0_y, float p1_x, float p1_y,
     s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y)) / (-s2_x * s1_y + s1_x * s2_y);
     t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x)) / (-s2_x * s1_y + s1_x * s2_y);
 
-    if (s >= 0 && s <= 1 && t >= 0 && t <= 1)
-    {
-        /*// Collision detected
-        if (i_x != NULL)
-            *i_x = p0_x + (t * s1_x);
-        if (i_y != NULL)
-            *i_y = p0_y + (t * s1_y);*/
+    if (s >= 0 && s <= 1 && t >= 0 && t <= 1){
         return 1;
     }
+    return 0;
+}
 
-    return 0; // No collision
+
+void sizeHead(ros::Publisher sizeHead_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face){
+    // Get up
+    cv::Point2f eyebrow_right = getPointFromPart(pose_model, cimg, face, "eyebrow_right");
+    cv::Point2f eyebrow_left = getPointFromPart(pose_model, cimg, face, "eyebrow_left");
+    cv::Point2f up;
+    up.x = (eyebrow_right.x + eyebrow_left.x);
+    up.y = (eyebrow_right.y + eyebrow_left.y);
+
+    // Get right
+    cv::Point2f right = getPointFromPart(pose_model, cimg, face, "right_side");
+    // Get left
+    cv::Point2f left = getPointFromPart(pose_model, cimg, face, "left_side");
+
+    // Compute size of the head
+    float horizontal = sqrt((right.x-left.x)*(right.x-left.x) + (right.y-left.y)*(right.y-left.y));
+    float vertical = sqrt((right.x-up.x)*(right.x-up.x) + (right.y-up.y)*(right.y-up.y));
+    auto size = vertical*horizontal;
+
+    cout <<"Head size:"<< size << endl;
+    std_msgs::Int16 msgSizeHead;
+    msgSizeHead.data = int(size/1000);
+    sizeHead_pub.publish(msgSizeHead);
+}
+
+void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face){
+
+    // Get mouth
+    cv::Point2f mouth_up = getPointFromPart(pose_model, cimg, face, "mouth_up");
+    cv::Point2f mouth_down = getPointFromPart(pose_model, cimg, face, "mouth_down");
+    cv::Point2f mouth_right = getPointFromPart(pose_model, cimg, face, "mouth_right");
+    cv::Point2f mouth_left = getPointFromPart(pose_model, cimg, face, "mouth_left");
+
+    char intersec = 0;
+    intersec = get_line_intersection(mouth_left.x, mouth_left.y, mouth_right.x, mouth_right.y,
+                                     mouth_up.x, mouth_up.y, mouth_down.x, mouth_down.y);
+
+    if (intersec == 0){
+        if (contact==true){
+            ROS_INFO("Someone smiled!");
+            std_msgs::Empty msgEmpty;
+            smile_pub.publish(msgEmpty);
+        }
+    }
+}
+
+void novelty(ros::Publisher novelty_pub, std::vector<bool> lookAt,
+             std::vector<rectangle> faces, float mu, float eps, float threshold){
+
+    std::vector<float> X(6,0);
+    X[0] = float(lookAt[0]);
+    X[1] = float(lookAt[1]);
+    X[2] = float(lookAt[2]);
+    X[3] = float(lookAt[3]);
+    X[4] = float(contact);
+    X[5] = float(faces.size());
+
+    std::vector<float> temp = EMA;
+
+    for (unsigned int j = 0; j < EMA.size(); ++j){
+        EMA[j] = mu*X[j] + (1-mu)*EMA[j];
+    }
+
+    float dist = 0.0;
+
+    for (unsigned int j = 0; j < EMA.size(); ++j){
+        dist += 2*(EMA[j]-temp[j])*(EMA[j]-temp[j]) / ( eps+(EMA[j]+temp[j])*(EMA[j]+temp[j]));
+    }
+    if( dist>threshold){
+        std_msgs::Float32 msgNovelty;
+        cout <<"Novelty detected! :"<< dist*sqrt(t) << endl;
+        msgNovelty.data = dist*sqrt(t);
+        novelty_pub.publish(msgNovelty);
+        t = 1;
+    }
+    else{
+        t++;
+    }
+}
+
+
+std::vector<bool> lookAt(ros::Publisher lookAt_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg,
+                         rectangle face, std::vector<full_object_detection> &contacts){
+    std::vector<bool> lookAt(4);
+    // Get nose
+    cv::Point2f nose = getPointFromPart(pose_model, cimg, face, "nose");
+
+    /*float nose.x = pose_model(cimg, faces[i]).part(30).x();
+    float nose.y = pose_model(cimg, faces[i]).part(30).y();
+    noses.push_back(centered_rect(point(nose.x,nose.y),8,8));*/
+
+    //get rights
+    cv::Point2f right = getPointFromPart(pose_model, cimg, face, "right_side");
+    //get lefts
+    cv::Point2f left = getPointFromPart(pose_model, cimg, face, "left_side");
+
+    float horRight = sqrt((right.x-nose.x)*(right.x-nose.x) + (right.y-nose.y)*(right.y-nose.y));
+    float horLeft = sqrt((left.x-nose.x)*(left.x-nose.x) + (left.y-nose.y)*(left.y-nose.y));
+    float horizontal = sqrt((right.x-left.x)*(right.x-left.x) + (right.y-left.y)*(right.y-left.y));
+    auto estwest = (horRight-horLeft)/horizontal; // -1<score<1
+
+    float l = horRight*horizontal/(horRight+horLeft);
+    float xl = right.x+(left.x-right.x)*l/horizontal;
+    float yl = right.y+(left.y-right.y)*l/horizontal;
+
+    float sh = (yl-nose.y)/abs(nose.y-yl);
+    float h = sqrt((nose.y-yl)*(nose.y-yl) + (nose.x-xl)*(nose.x-xl));
+    float southnorth = sh*h/horRight;
+
+    bool look_left = estwest>0.3;
+    bool look_right = estwest<-0.3;
+    bool look_up = southnorth>0.3;
+    bool look_down = southnorth<-0.3;
+
+    contact = true;
+
+    std_msgs::String msg;
+    std::stringstream ss;
+
+    if(look_right){
+        ss << /*"face " << i <<*/ "right";
+        msg.data = ss.str();
+        ROS_INFO("%s", msg.data.c_str());
+        lookAt_pub.publish(msg);
+        contact=false;
+    }
+    if(look_left){
+        ss << /*"face " << i <<*/ "left";
+        msg.data = ss.str();
+        ROS_INFO("%s", msg.data.c_str());
+        lookAt_pub.publish(msg);
+        contact=false;
+    }
+    if(look_up){
+        ss << /*"face " << i <<*/ "up";
+        msg.data = ss.str();
+        ROS_INFO("%s", msg.data.c_str());
+        lookAt_pub.publish(msg);
+        contact=false;
+    }
+    if(look_down){
+        ss << /*"face " << i <<*/ "down";
+        msg.data = ss.str();
+        ROS_INFO("%s", msg.data.c_str());
+        lookAt_pub.publish(msg);
+        contact=false;
+    }
+    if(contact){
+        cout << "contact !!" << endl;
+        contacts.push_back(pose_model(cimg, face));
+    }
+    lookAt[0] = look_right;
+    lookAt[1] = look_left;
+    lookAt[2] = look_up;
+    lookAt[3] = look_down;
+
+    return lookAt;
+}
+
+void amountMovement(ros::Publisher movement_pub, cv::Mat &rgbFrames, cv::Mat &grayFrames, cv::Mat &prevGrayFrame,
+                    cv::Mat &opticalFlow, std::vector<cv::Point2f> &points1, std::vector<cv::Point2f> &points2, bool &needToInit){
+
+    std::vector<uchar> status;
+    std::vector<float> err;
+
+    cv::TermCriteria termcrit(CV_TERMCRIT_ITER | CV_TERMCRIT_EPS, 20, 0.03);
+    cv::Size winSize(31, 31);
+
+    if (needToInit) {
+        cv::goodFeaturesToTrack(grayFrames, points1, MAX_COUNT, 0.01, 5, cv::Mat(), 3, 0, 0.04);
+        needToInit = false;
+    } else if (!points2.empty()) {
+        cv::calcOpticalFlowPyrLK(prevGrayFrame, grayFrames, points2, points1, status, err, winSize, 3, termcrit, 0, 0.001);
+
+        int x_sum, y_sum = 0;
+
+        int i, k;
+        for (i = k = 0; i < points2.size(); i++) {
+            int x = int(points1[i].x - points2[i].x);
+            int y = int(points1[i].y - points2[i].y);
+
+            x_sum = abs(x) + x_sum;
+            y_sum = abs(y) + y_sum;
+
+            if ((points1[i].x - points2[i].x) > 0) {
+                cv::line(rgbFrames, points1[i], points2[i], cv::Scalar(0, 0, 255), 1, 1, 0);
+                cv::circle(rgbFrames, points1[i], 2, cv::Scalar(255, 0, 0), 1, 1, 0);
+                cv::line(opticalFlow, points1[i], points2[i], cv::Scalar(0, 0, 255), 1, 1, 0);
+                cv::circle(opticalFlow, points1[i], 1, cv::Scalar(255, 0, 0), 1, 1, 0);
+            } else {
+                cv::line(rgbFrames, points1[i], points2[i], cv::Scalar(0, 255, 0), 1, 1, 0);
+                cv::circle(rgbFrames, points1[i], 2, cv::Scalar(255, 0, 0), 1, 1, 0);
+                cv::line(opticalFlow, points1[i], points2[i], cv::Scalar(0, 255, 0), 1, 1, 0);
+                cv::circle(opticalFlow, points1[i], 1, cv::Scalar(255, 0, 0), 1, 1, 0);
+            }
+            points1[k++] = points1[i];
+        }
+        cv::goodFeaturesToTrack(grayFrames, points1, MAX_COUNT, 0.01, 10, cv::Mat(), 3, 0, 0.04);
+
+        if(x_sum + y_sum > 778000){
+            std_msgs::Float32 msgMovement;
+            cout <<"Movement detected! :"<< x_sum + y_sum << endl;
+            msgMovement.data = x_sum + y_sum;
+            movement_pub.publish(msgMovement);
+        }
+    }
 }
 
 int main(int argc, char **argv)
@@ -76,10 +294,8 @@ int main(int argc, char **argv)
 
     /**
     * The ros::init() function needs to see argc and argv so that it can perform
-    * any ROS arguments and name remapping that were provided at the command line. For programmatic
-    * remappings you can use a different version of init() which takes remappings
-    * directly, but for most command-line programs, passing argc and argv is the easiest
-    * way to do it.  The third argument to init() is the name of the node.
+    * any ROS arguments and name remapping that were provided at the command line.
+    * The third argument to init() is the name of the node.
     *
     * You must call one of the versions of ros::init() before using any other
     * part of the ROS system.
@@ -95,33 +311,16 @@ int main(int argc, char **argv)
 
     /**
      * The advertise() function is how you tell ROS that you want to
-     * publish on a given topic name. This invokes a call to the ROS
-     * master node, which keeps a registry of who is publishing and who
-     * is subscribing. After this advertise() call is made, the master
-     * node will notify anyone who is trying to subscribe to this topic name,
-     * and they will in turn negotiate a peer-to-peer connection with this
-     * node.  advertise() returns a Publisher object which allows you to
-     * publish messages on that topic through a call to publish().  Once
-     * all copies of the returned Publisher object are destroyed, the topic
-     * will be automatically unadvertised.
-     *
-     * The second parameter to advertise() is the size of the message queue
-     * used for publishing messages.  If messages are published more quickly
-     * than we can send them, the number here specifies how many messages to
-     * buffer up before throwing some away.
+     * publish on a given topic name.The second parameter to advertise()
+     * is the size of the message queue
      */
     ros::Publisher lookAt_pub = n.advertise<std_msgs::String>("lookAt", 1000);
     ros::Publisher smile_pub = n.advertise<std_msgs::Empty>("smile", 1000);
     ros::Publisher movement_pub = n.advertise<std_msgs::Int16>("movement", 1000);
     ros::Publisher sizeHead_pub = n.advertise<std_msgs::Int16>("sizeHead", 1000);
+    ros::Publisher novelty_pub = n.advertise<std_msgs::Float32>("novelty", 1000);
 
     ros::Rate loop_rate(10);
-
-
-    if (argc == 1){
-            cout << "need destination to record the activity" << endl;
-            return 0;
-        }
 
     try
     {
@@ -138,218 +337,59 @@ int main(int argc, char **argv)
         shape_predictor pose_model;
         deserialize("shape_predictor_68_face_landmarks.dat") >> pose_model;
 
-        std::vector<int> lastPositions;
-        float curr_EMA = 0;
-
-        std::vector<float> EMA(6,1);
         float threshold = 1;
         float mu = 0.1;
         float eps = 0.00000001;
-        float t = 1;
+
+        cv::Mat frame, grayFrames, rgbFrames, prevGrayFrame;
+        cv::Mat opticalFlow = cv::Mat(cap.get(CV_CAP_PROP_FRAME_HEIGHT), cap.get(CV_CAP_PROP_FRAME_HEIGHT), CV_32FC3);
+
+        std::vector<cv::Point2f> points1;
+        std::vector<cv::Point2f> points2;
+        bool needToInit = true;
 
         // Grab and process frames until the main window is closed by the user.
-        while(!win.is_closed())
-        {
-            // Grab a frame
-            cv::Mat temp;
-            cap >> temp;
-            // Turn OpenCV's Mat into something dlib can deal with.  Note that this just
-            // wraps the Mat object, it doesn't copy anything.  So cimg is only valid as
-            // long as temp is valid.  Also don't do anything to temp that would cause it
-            // to reallocate the memory which stores the image as that will make cimg
-            // contain dangling pointers.  This basically means you shouldn't modify temp
-            // while using cimg.
-            cv_image<bgr_pixel> cimg(temp);
+        while(!win.is_closed()) {
 
-            // Detect faces 
+            cap >> frame;
+            frame.copyTo(rgbFrames);
+            cv::cvtColor(rgbFrames, grayFrames, CV_BGR2GRAY);
+
+            // Amount of movement using optical flow
+            amountMovement(movement_pub, rgbFrames, grayFrames, prevGrayFrame, opticalFlow, points1, points2, needToInit);
+
+            cv_image<bgr_pixel> flowimg(rgbFrames);
+            win.set_image(flowimg);
+
+            std::swap(points2, points1);
+            points1.clear();
+            grayFrames.copyTo(prevGrayFrame);
+
+
+            /** Turn OpenCV's Mat into something dlib can deal with.  Note that this just wraps the Mat object,
+             * it doesn't copy anything.  So cimg is only valid as long as temp is valid.
+             */
+            cv_image<bgr_pixel> cimg(frame);
+
+            // Detect faces
             std::vector<rectangle> faces = detector(cimg);
             // Find the pose of each face.
             std::vector<full_object_detection> shapes;
 
-            std::vector<rectangle> noses;
-            std::vector<rectangle> sides;
+            //std::vector<rectangle> noses;
+            //std::vector<rectangle> sides;
 
             for (unsigned long i = 0; i < faces.size(); ++i){
                 shapes.push_back(pose_model(cimg, faces[i]));
+                std::vector<bool> lookTowards;
 
-                //get noses
-                auto x = pose_model(cimg, faces[i]).part(30).x();
-                auto y = pose_model(cimg, faces[i]).part(30).y();
-                noses.push_back(centered_rect(point(x-2,y-2),8,8));
-
-                //get lefts
-                auto x1 = pose_model(cimg, faces[i]).part(2).x();
-                auto y1 = pose_model(cimg, faces[i]).part(2).y();
-                sides.push_back(centered_rect(point(x1-2,y1-2),8,8));
-
-                //get lefts
-                auto x2 = pose_model(cimg, faces[i]).part(14).x();
-                auto y2 = pose_model(cimg, faces[i]).part(14).y();
-                sides.push_back(centered_rect(point(x2-2,y2-2),8,8));
-
-                //get down
-                auto x3 = pose_model(cimg, faces[i]).part(2).x();
-                auto y3 = pose_model(cimg, faces[i]).part(2).y();
-
-                //get up
-                auto x4 = 0.5*( pose_model(cimg, faces[i]).part(21).x() + pose_model(cimg, faces[i]).part(22).x() );
-                auto y4 = 0.5*( pose_model(cimg, faces[i]).part(21).y() + pose_model(cimg, faces[i]).part(22).y() );
-
-                float a = sqrt((x1-x)*(x1-x) + (y1-y)*(y1-y));
-                float b = sqrt((x2-x)*(x2-x) + (y2-y)*(y2-y));
-                float c = sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2));
-
-                auto estwest = (a-b)/c; // -1<score<1
-
-                auto l = a*c/(a+b);
-                auto xl = x1+(x2-x1)*l/c;
-                auto yl = y1+(y2-y1)*l/c;
-
-                auto sh = (yl-y)/abs(y-yl);
-                auto h = sqrt((y-yl)*(y-yl) + (x-xl)*(x-xl));
-                auto southnorth = sh*h/a;
-
-                auto look_left = estwest>0.2;
-                auto look_right = estwest<-0.2;
-                auto look_up = southnorth>0.2;
-                auto look_down = southnorth<-0.2;
-
-                auto contact = true;
-
-                std_msgs::String msg;
-                std::stringstream ss;
-
-                if(look_left){
-                    ss << /*"face " << i <<*/ "left";
-                    msg.data = ss.str();
-                    //ROS_INFO("%s", msg.data.c_str());
-                    lookAt_pub.publish(msg);
-                    contact=false;
-                }
-                if(look_right){
-                    ss << /*"face " << i <<*/ "right";
-                    msg.data = ss.str();
-                    //ROS_INFO("%s", msg.data.c_str());
-                    lookAt_pub.publish(msg);
-                    contact=false;
-                }
-                if(look_up){
-                    ss << /*"face " << i <<*/ "up";
-                    msg.data = ss.str();
-                    //ROS_INFO("%s", msg.data.c_str());
-                    lookAt_pub.publish(msg);
-                    contact=false;
-                }
-                if(look_down){
-                    ss << /*"face " << i <<*/ "down";
-                    msg.data = ss.str();
-                    //ROS_INFO("%s", msg.data.c_str());
-                    lookAt_pub.publish(msg);
-                    contact=false;
-                }
-                if(contact){
-                    //cout << "contact !!" << endl;
-                    contacts.push_back(pose_model(cimg, faces[i]));
-                }
-
-                //guess mouth
-                auto mouth_left_x = pose_model(cimg, faces[i]).part(48).x();
-                auto mouth_left_y = pose_model(cimg, faces[i]).part(48).y();
-                sides.push_back(centered_rect(point(mouth_left_x-2,mouth_left_y-2),8,8));
-                auto mouth_right_x = pose_model(cimg, faces[i]).part(54).x();
-                auto mouth_right_y = pose_model(cimg, faces[i]).part(54).y();
-                sides.push_back(centered_rect(point(mouth_right_x-2,mouth_right_y-2),8,8));
-                auto mouth_up_x = pose_model(cimg, faces[i]).part(51).x();
-                auto mouth_up_y = pose_model(cimg, faces[i]).part(51).y();
-                sides.push_back(centered_rect(point(mouth_up_x-2,mouth_up_y-2),8,8));
-                auto mouth_down_x = pose_model(cimg, faces[i]).part(57).x();
-                auto mouth_down_y = pose_model(cimg, faces[i]).part(57).y();
-                sides.push_back(centered_rect(point(mouth_down_x-2,mouth_down_y-2),8,8));
-
-                //float *intsec_x;
-                //float *intsec_y;
-                char intersec = 0;
-                intersec = get_line_intersection(mouth_left_x, mouth_left_y, mouth_right_x, mouth_right_y,
-                                      mouth_up_x, mouth_up_y, mouth_down_x, mouth_down_y/*,
-                                      intsec_x, intsec_y*/);
-
-
-                std_msgs::Empty msgEmpty;
-                if (intersec == 0){
-                    //ROS_INFO("SMILE");
-                    smile_pub.publish(msgEmpty);
-                }
-
-
-                // Let us implement a marker of movement
-                float prev_EMA = curr_EMA;
-                int lastPosition = x;  //Pick the nose to start...
-                if (lastPositions.size()<=10){
-                    lastPositions.push_back(lastPosition);
-                }else{
-                    float num = lastPositions[9];
-                    float den = 1;
-                    int j = 9;
-                    float alpha = 0.3;
-                    for (unsigned i=0; i<lastPositions.size(); ++i){
-                        num += lastPositions[i] * pow((1-alpha),j);
-                        den += pow((1-alpha),j);
-                        j--;
-                    }
-                    curr_EMA = num/den;
-                    lastPositions.erase(lastPositions.begin());
-                }
-
-                std_msgs::Int16 msgInt;
-                float diff_EMA = abs(curr_EMA - prev_EMA);
-                if (diff_EMA>20){
-                    diff_EMA = int(diff_EMA);
-                    ROS_INFO("EMA: %f",diff_EMA);
-                    msgInt.data = diff_EMA;
-                    movement_pub.publish(msgInt);
-                }
-
-                // Compute size of the head
-                std_msgs::Int16 msgSizeHead;
-                float d = sqrt((x3-x4)*(x3-x4) + (y3-y4)*(y3-y4));
-                auto size = c*d;
-                cout << int(size/1000) << endl;
-                msgSizeHead.data = int(size/1000);
-                sizeHead_pub.publish(msgSizeHead);
-
-
-                // Compute novelty
-                std::vector<float> X(6,0);
-                X[0] = float(look_right);
-                X[1] = float(look_left);
-                X[2] = float(look_up);
-                X[3] = float(look_down);
-                X[4] = float(contact);
-                X[5] = float(faces.size());
-
-                auto temp = EMA;
-
-                for (unsigned int j = 0; j < EMA.size(); ++j){
-                    EMA[j] = mu*X[j] + (1-mu)*EMA[j];
-                }
-
-                float dist = 0.0;
-
-                for (unsigned int j = 0; j < EMA.size(); ++j){
-                    dist += 2*(EMA[j]-temp[j])*(EMA[j]-temp[j]) / ( eps+(EMA[j]+temp[j])*(EMA[j]+temp[j]) );
-                }
-                if( dist>threshold){
-                    //cout <<"novelty ! :"<< dist*sqrt(t) << endl;
-                    t = 1;
-                }
-                else{
-                    t++;
-                }
-
+                lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
+                sizeHead(sizeHead_pub, pose_model, cimg, faces[i]);
+                smileDetector(smile_pub, pose_model, cimg, faces[i]);
+                novelty(novelty_pub, lookTowards, faces, mu, eps, threshold);
             }
 
             if( faces.size() == 0){
-
                 std::vector<float> X(6,0);
                 auto temp = EMA;
 
@@ -374,21 +414,17 @@ int main(int argc, char **argv)
             win.clear_overlay();
             win.set_image(cimg);
             win.add_overlay(render_face_detections(shapes));
-            for( auto nose : noses)
+            /*for( auto nose : noses)
                 win.add_overlay(nose);
             for( auto side : sides)
-                win.add_overlay(side);
+                win.add_overlay(side);*/
 
             ros::spinOnce();
         }
 
         cout << "please wait, recording the landmark positions during eye_contacts. it could take a while"<< endl;
-                //cout << contacts.size() << endl;
 
-        //auto i = 0;
-        for( auto contact : contacts){
-            //i++;
-            //cout<<i<< "of "<< contacts.size()<<endl;
+        for(auto contact : contacts){
             for (unsigned long j = 0; j < contact.num_parts(); ++j){
                 myfile << contact.part(j).x() << " ";
             }
@@ -415,5 +451,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-
-
