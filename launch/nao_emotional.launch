@@ -4,6 +4,6 @@
     <node pkg="emotional_manager" type="action_manager.py" name="action_manager"/>
     <node pkg="emotional_manager" type="emotional_manager.py" name="emotional_manager" output="screen"/>
     <node pkg="emotional_manager" type="valence_arousal_map.py" name="valence_arousal_map" output="screen"/>
-    <node pkg="emotional_manager" type="vision" name="vision"/>
+    <node pkg="emotional_manager" type="vision" name="vision" output="screen"/>
 
 </launch>

@@ -12,7 +12,7 @@ import time
 
 #import numpy as np
 import rospy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point
 
 from naoqi import ALProxy
 from naoqi import ALBroker
@@ -36,7 +36,7 @@ class action_manager():
         topic = rospy.get_param('~topic', 'current_emotion')
         rospy.loginfo("I will subscribe to the topic %s", topic)
         # Create a subscriber with appropriate topic, custom message and name of callback function.
-        rospy.Subscriber(topic, PoseStamped, self.express_current_emotion)
+        rospy.Subscriber(topic, Point, self.express_current_emotion)
         # Wait for messages on topic, go to callback function when new messages arrive.
         rospy.spin()
 
@@ -92,9 +92,9 @@ class action_manager():
         # CALCULATIONS
         # Get current emotional values and generic calcs.
         current_emotion = data
-        valence = current_emotion.pose.position.x
-        arousal = current_emotion.pose.position.y
-        emotion_name = current_emotion.header.frame_id
+        valence = current_emotion.x
+        arousal = current_emotion.y
+        #emotion_name = current_emotion.header.frame_id
         
         # Valence and arousal are normalised between -1 and 1, with an axis intersection at (0, 0)        
         # Convert axis intersection to index.
@@ -103,16 +103,16 @@ class action_manager():
 
         # Speech.
         # The pitch and volume modifier values need scaled, final value to be determined. e.g. a value of 4 will divide the parameter by 4 to give a +/- of 25% of the default value
-        speech_parameter_scaling_value = 4
-        string_to_say = "I am feeling " + emotion_name
-        scaled_pitch_modifier = 1 + (speech_parameter_lookup_table[arousal_index][valence_index][0] / speech_parameter_scaling_value)
-        # NAO can only increase pitch! So need to check if a pitch reduction required and negate it. Range 1.0 - 4.0.
-        if scaled_pitch_modifier < 1.0:
-            scaled_pitch_modifier = 1.0
-        # NAO volume (gain) range 0.0 - 1.0.
-        scaled_volume_modifier = 0.5 + (speech_parameter_lookup_table[arousal_index][valence_index][1] / speech_parameter_scaling_value)
-        self.tts.setParameter("pitchShift", scaled_pitch_modifier)
-        self.tts.setVolume(scaled_volume_modifier)
+#        speech_parameter_scaling_value = 4
+#        string_to_say = "I am feeling " + emotion_name
+#        scaled_pitch_modifier = 1 + (speech_parameter_lookup_table[arousal_index][valence_index][0] / speech_parameter_scaling_value)
+#        # NAO can only increase pitch! So need to check if a pitch reduction required and negate it. Range 1.0 - 4.0.
+#        if scaled_pitch_modifier < 1.0:
+#            scaled_pitch_modifier = 1.0
+#        # NAO volume (gain) range 0.0 - 1.0.
+#        scaled_volume_modifier = 0.5 + (speech_parameter_lookup_table[arousal_index][valence_index][1] / speech_parameter_scaling_value)
+#        self.tts.setParameter("pitchShift", scaled_pitch_modifier)
+#        self.tts.setVolume(scaled_volume_modifier)
         
         # Eyes.        
         hex_eye_colour = eye_colour_lookup_table[arousal_index][valence_index]
@@ -155,7 +155,7 @@ class action_manager():
 
         # OUTPUTS
         # Speech.
-        self.tts.post.say(string_to_say)
+        #self.tts.post.say(string_to_say)
         # Motion.
         self.motion.post.angleInterpolation(motion_names, motion_keys, motion_times, True)
         # Eyes.       
@@ -170,11 +170,11 @@ class action_manager():
 
 def main():
     
-    myBroker = ALBroker("myBroker",
-        "0.0.0.0",   
-        0,           
-        NAO_IP,         
-        9559) 
+#    myBroker = ALBroker("myBroker",
+#        "0.0.0.0",   
+#        0,           
+#        NAO_IP,         
+#        9559) 
             
     # Initialize the node and name it.
     rospy.init_node('action_manager', anonymous = True)

@@ -41,6 +41,12 @@ using namespace std;
 float t = 1;
 std::vector<float> EMA(6,1);
 
+int look_right_counter = 0;
+int look_left_counter = 0;
+int look_up_counter = 0;
+int look_down_counter = 0;
+int smile_counter = 0;
+string state = " ";
 
 // Create a dictionary for the markers.
 std::map<string, int> partToPoint = {
@@ -100,7 +106,7 @@ void sizeHead(ros::Publisher sizeHead_pub, shape_predictor &pose_model, cv_image
     float vertical = sqrt((right.x-up.x)*(right.x-up.x) + (right.y-up.y)*(right.y-up.y));
     auto size = vertical*horizontal;
 
-    cout <<"Head size:"<< size << endl;
+    //cout <<"Head size:"<< size << endl;
     std_msgs::Int16 msgSizeHead;
     msgSizeHead.data = int(size/1000);
     sizeHead_pub.publish(msgSizeHead);
@@ -120,9 +126,13 @@ void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_ima
 
     if (intersec == 0){
         if (contact==true){
-            ROS_INFO("Someone smiled!");
-            std_msgs::Empty msgEmpty;
-            smile_pub.publish(msgEmpty);
+            smile_counter = smile_counter +1;
+            if(smile_counter>5){
+                cout<< "Someone smiled!"<<endl;
+                std_msgs::Empty msgEmpty;
+                smile_pub.publish(msgEmpty);
+                smile_counter = 0;
+            }
         }
     }
 }
@@ -201,35 +211,55 @@ std::vector<bool> lookAt(ros::Publisher lookAt_pub, shape_predictor &pose_model,
     std::stringstream ss;
 
     if(look_right){
-        ss << /*"face " << i <<*/ "right";
-        msg.data = ss.str();
-        ROS_INFO("%s", msg.data.c_str());
-        lookAt_pub.publish(msg);
-        contact=false;
+        smile_counter = 0;
+        look_right_counter = look_right_counter + 1;
+        if (look_right_counter > 5){
+            ss << /*"face " << i <<*/ "right";
+            msg.data = ss.str();
+            ROS_INFO("%s", msg.data.c_str());
+            lookAt_pub.publish(msg);
+            contact=false;
+            look_right_counter = 0;
+        }
     }
     if(look_left){
-        ss << /*"face " << i <<*/ "left";
-        msg.data = ss.str();
-        ROS_INFO("%s", msg.data.c_str());
-        lookAt_pub.publish(msg);
-        contact=false;
+        smile_counter = 0;
+        look_left_counter = look_left_counter + 1;
+        if (look_left_counter > 5){
+            ss << /*"face " << i <<*/ "left";
+            msg.data = ss.str();
+            ROS_INFO("%s", msg.data.c_str());
+            lookAt_pub.publish(msg);
+            contact=false;
+            look_left_counter = 0;
+        }
     }
     if(look_up){
-        ss << /*"face " << i <<*/ "up";
-        msg.data = ss.str();
-        ROS_INFO("%s", msg.data.c_str());
-        lookAt_pub.publish(msg);
-        contact=false;
+        smile_counter = 0;
+        look_up_counter = look_up_counter + 1;
+        if (look_up_counter > 5){
+            ss << /*"face " << i <<*/ "robot contact";
+            msg.data = ss.str();
+            ROS_INFO("%s", msg.data.c_str());
+            lookAt_pub.publish(msg);
+            contact=false;
+            look_up_counter = 0;
+        }
     }
     if(look_down){
-        ss << /*"face " << i <<*/ "down";
-        msg.data = ss.str();
-        ROS_INFO("%s", msg.data.c_str());
-        lookAt_pub.publish(msg);
-        contact=false;
+        smile_counter = 0;
+        look_down_counter = look_down_counter + 1;
+        if(look_down_counter > 5){
+            ss << /*"face " << i <<*/ "down";
+            msg.data = ss.str();
+            ROS_INFO("%s", msg.data.c_str());
+            lookAt_pub.publish(msg);
+            contact=false;
+            look_down_counter = 0;
+        }
     }
     if(contact){
-        cout << "contact !!" << endl;
+        //cout << "contact !!" << endl;
         contacts.push_back(pose_model(cimg, face));
     }
     lookAt[0] = look_right;
@@ -289,6 +319,38 @@ void amountMovement(ros::Publisher movement_pub, cv::Mat &rgbFrames, cv::Mat &gr
     }
 }
 
+cv::VideoWriter prepareVideoRecord(cv::VideoCapture cap){
+    double dWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH); //get the width of frames of the video
+    double dHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT); //get the height of frames of the video
+
+    cout << "Frame Size = " << dWidth << "x" << dHeight << endl;
+
+    cv::Size frameSize(static_cast<int>(dWidth), static_cast<int>(dHeight));
+
+    cv::VideoWriter oVideoWriter ("/home/ferran/.ros/visionLog/Session.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); //initialize the VideoWriter object
+
+    if ( !oVideoWriter.isOpened() ) //if not initialize the VideoWriter successfully, exit the program
+    {
+        cout << "ERROR: Failed to write the video" << endl;
+
+    }
+
+    return oVideoWriter;
+}
+
+void shapeToPoints(cv::Mat &imgResult, full_object_detection shape){
+
+    cv::Point2f currentPoint;
+    for (unsigned int i = 0; i < 68; i++){
+        currentPoint = cv::Point2f(shape.part(i)(0),shape.part(i)(1));
+        cv::circle(imgResult, cvPoint(currentPoint.x,currentPoint.y),2,CV_RGB(255,0,0),-1,8,0);
+    }
+}
+
+void stateActivityCallback(const std_msgs::String::ConstPtr& msg){
+    state = msg->data.c_str();
+}
+
 int main(int argc, char **argv)
 {
 
@@ -319,8 +381,9 @@ int main(int argc, char **argv)
     ros::Publisher movement_pub = n.advertise<std_msgs::Int16>("movement", 1000);
     ros::Publisher sizeHead_pub = n.advertise<std_msgs::Int16>("sizeHead", 1000);
     ros::Publisher novelty_pub = n.advertise<std_msgs::Float32>("novelty", 1000);
+    ros::Subscriber state_sub = n.subscribe("state_activity", 1000, stateActivityCallback);
 
-    ros::Rate loop_rate(10);
+    ros::Rate loop_rate(20);
 
     try
     {
@@ -330,6 +393,8 @@ int main(int argc, char **argv)
         std::vector<full_object_detection> contacts;
 
         cv::VideoCapture cap(0);
+        cap.set(CV_CAP_PROP_FRAME_WIDTH, 640);
+        cap.set(CV_CAP_PROP_FRAME_HEIGHT, 360);
         image_window win;
 
         // Load face detection and pose estimation models.
@@ -347,17 +412,25 @@ int main(int argc, char **argv)
         std::vector<cv::Point2f> points1;
         std::vector<cv::Point2f> points2;
         bool needToInit = true;
+        cv::VideoWriter oVideoWriter = prepareVideoRecord(cap);
 
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed()) {
 
             cap >> frame;
+
+            //Resize and crop the boundaries to get 4:3 proportion
+            //cv::resize(frame, frame, cv::Size(640, 360), 0, 0, cv::INTER_CUBIC);
+            //cv::Rect myROI(160, 0, 640, 480);
+            //frame = frame(myROI);
+
             frame.copyTo(rgbFrames);
             cv::cvtColor(rgbFrames, grayFrames, CV_BGR2GRAY);
 
             // Amount of movement using optical flow
-            amountMovement(movement_pub, rgbFrames, grayFrames, prevGrayFrame, opticalFlow, points1, points2, needToInit);
-
+            if(state != "WAITING_FOR_FEEDBACK"){
+                amountMovement(movement_pub, rgbFrames, grayFrames, prevGrayFrame, opticalFlow, points1, points2, needToInit);
+            }
             cv_image<bgr_pixel> flowimg(rgbFrames);
             win.set_image(flowimg);
 
@@ -380,7 +453,11 @@ int main(int argc, char **argv)
             //std::vector<rectangle> sides;
 
             for (unsigned long i = 0; i < faces.size(); ++i){
-                shapes.push_back(pose_model(cimg, faces[i]));
+                full_object_detection shape = pose_model(cimg, faces[i]);
+                shapes.push_back(shape);
+                //Convert to Point2f
+                shapeToPoints(rgbFrames, shape);
+
                 std::vector<bool> lookTowards;
 
                 lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
@@ -388,6 +465,9 @@ int main(int argc, char **argv)
                 smileDetector(smile_pub, pose_model, cimg, faces[i]);
                 novelty(novelty_pub, lookTowards, faces, mu, eps, threshold);
             }
+
+            //Lets put the markers to the video
+            oVideoWriter.write(rgbFrames);
 
             if( faces.size() == 0){
                 std::vector<float> X(6,0);
@@ -422,7 +502,7 @@ int main(int argc, char **argv)
             ros::spinOnce();
         }
 
-        cout << "please wait, recording the landmark positions during eye_contacts. it could take a while"<< endl;
+        /*cout << "please wait, recording the landmark positions during eye_contacts. it could take a while"<< endl;
 
         for(auto contact : contacts){
             for (unsigned long j = 0; j < contact.num_parts(); ++j){
@@ -434,7 +514,7 @@ int main(int argc, char **argv)
             myfile << endl;
         }
 
-        myfile.close();
+        myfile.close();*/
 
     }
     catch(serialization_error& e)
