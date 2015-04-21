@@ -9,12 +9,13 @@ Created on Tue Mar 10 17:37:34 2015
 import sys
 import rospy
 from std_msgs.msg import Int16, Int32, String, Empty, Float32
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import PointStamped, Point
 
 from naoqi import ALProxy
 from naoqi import ALBroker
 
 from IRT import engagement_model
+from bipolar import bipolarSigmoid
 
 NAO_IP = "192.168.1.12"
 #global callback
@@ -26,7 +27,7 @@ class emotion_manager():
         
         # Set up the dictionary to be able to calculate the vectors
         self.emotional_dictionary ={'happiness':{'x':0.90,'y':0.75},
-                                    'bored':{'x':-0.75,'y':-0.75},
+                                    'boredom':{'x':-0.75,'y':-0.75},
                                     'anger':{'x':-0.75,'y':0.75},
                                     'fear':{'x':-0.90,'y':0.00},
                                     'surprise':{'x':0.00,'y':0.50},
@@ -51,25 +52,26 @@ class emotion_manager():
                          'neutral':{'x':0.00, 'y':0.00}}
         
         self.prev_time = 1
-        self.pub_direction = rospy.Publisher('update_position', Point, queue_size=10)
-        self.nb_features = 7
+        self.pub_direction = rospy.Publisher('update_position', PointStamped, queue_size=10)
+        self.nb_features = 9
         
-        rospy.Subscriber("lookAt", String, self.look_robot_callback)
-        rospy.Subscriber("timeSpendActivity", Int32, self.time_callback)
-        rospy.Subscriber("numberRepetitions", Int16, self.repetitions_callback)
-        rospy.Subscriber("smile", Empty, self.smile_robot_callback)
-        rospy.Subscriber("movement", Int16, self.movement_callback)
-        rospy.Subscriber("sizeHead", Int16, self.proximity_callback)
-        rospy.Subscriber("novelty", Float32, self.novelty_callback)
-        rospy.Subscriber("responseTime", Float32, self.response_callback)
+        # Cues to evaluate:
+        rospy.Subscriber("lookAt", String, self.look_robot_callback)            # Where the child is looking at
+        rospy.Subscriber("smile", Empty, self.smile_robot_callback)             # The child is smiling
+        rospy.Subscriber("movement", Int16, self.movement_callback)             # The child is moving while sitting
+        rospy.Subscriber("sizeHead", Int16, self.proximity_callback)            # The child is getting closer
+        rospy.Subscriber("novelty", Float32, self.novelty_callback)             # Something new happen in the scenario
+        rospy.Subscriber("activity_time", Int32, self.time_callback)            # For how long the activity was done
+        rospy.Subscriber("nb_repetitions", Int16, self.repetitions_callback)    # The number of word repetitions
+        rospy.Subscriber("time_response", Float32, self.response_callback)      # Response time till the child writes
+        rospy.Subscriber("time_writing", Float32, self.writing_callback)        # Writing time during demostration
         
-        self.pub_engagement = rospy.Publisher('level_engagement', Point, queue_size=10)
-        
+        self.pub_engagement = rospy.Publisher('level_engagement', Point, queue_size=10)        
         
         # Boundaries of the map
         self.max_n = 10
         self.min_n = -10
-                
+        self.key = "key"
         self.step_size = 1    # Size of the step of the current position towards an emotion
         
 #        while callback:
@@ -95,11 +97,13 @@ class emotion_manager():
 #        self.pub_direction.publish(msg)
             
     def buildMessage(self):        
-        point = Point()
-        point.x = self.current_position['x']
-        point.y = self.current_position['y']
+        state = PointStamped()
+        state.header.frame_id = self.key
+        state.point.x = self.current_position['x']
+        state.point.y = self.current_position['y']
         
-        return point
+        return state
+        
     
 #TODO: Less importance to the previous events passing the feature and the weight  
     def weighting(self):        
@@ -265,8 +269,8 @@ class emotion_manager():
         callback = False
         featureName = 'sizeHead'
         #Calculate the new vector to move towards
-        if data.data > 30:
-            rospy.loginfo(rospy.get_caller_id() + "The children is close to the robot")
+        if data.data > 90:
+            rospy.loginfo(rospy.get_caller_id() + "The children is close to the robot" + str(data.data))
             direction_x = self.emotional_dictionary['fear']['x'] - self.current_position['x']
             direction_y = self.emotional_dictionary['fear']['y'] - self.current_position['y']
         
@@ -302,13 +306,26 @@ class emotion_manager():
         msg = self.buildMessage()
         self.pub_direction.publish(msg)        
         callback = True
-    
-    # In order to test with a time response of 5 sec: rostopic pub -1 /responseTime std_msgs/Float32 '5'    
+        
     def response_callback(self, data):
+        
+        # Convert to seconds
+        rt_sec = data.data / 1000
+        #bipolar(P_results, sigma)
+        
+        rospy.loginfo(rt_sec)
+        
+                          
+    # In order to test with a time response of 5 sec: rostopic pub -1 /responseTime std_msgs/Float32 '5'    
+    def writing_callback(self, data):
         myModel = engagement_model()
         myModel.train_model()
         myModel.plot_data()
-        P_results = myModel.get_engagement(data.data)
+        
+        # Convert to seconds
+        wt_sec = data.data / 1000
+        
+        P_results = myModel.get_engagement(wt_sec)
         
         # Rescale to have a positive and negative engagement where 0 is 50
         engagement_level = int(P_results[0]*100)
@@ -318,18 +335,17 @@ class emotion_manager():
         
         # Publish to the map
         point = Point()
-        point.x = engagement_level
-        
+        point.x = engagement_level    
         self.pub_engagement.publish(point)
         
         
 def main():
     
-#    myBroker = ALBroker("myBroker",
-#        "0.0.0.0",   
-#        0,           
-#        NAO_IP,         
-#        9559) 
+    myBroker = ALBroker("myBroker",
+        "0.0.0.0",   
+        0,           
+        NAO_IP,         
+        9559) 
     
     # Initialize the node and name it.       
     rospy.init_node('emotional_manager', anonymous = True)

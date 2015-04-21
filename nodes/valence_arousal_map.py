@@ -16,7 +16,7 @@ from kivy.config import Config
 
 import rospy
 
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import PointStamped, Point
 
 # Set up the default size screen
 Config.set('graphics', 'width', '1200')
@@ -41,7 +41,7 @@ class pointCurrentState(Widget):
         super(pointCurrentState, self).__init__(**kwargs)
         
         topic = 'current_emotion'
-        self.pub = rospy.Publisher(topic, Point, queue_size=10)
+        self.pub = rospy.Publisher(topic, PointStamped, queue_size=10)
     
         with self.canvas:
             self.color = Color(1, 0, 0)
@@ -58,7 +58,7 @@ class pointCurrentState(Widget):
                     
         # Initialize the subscriber, the topic and name it.
         topic = 'update_position'
-        rospy.Subscriber(topic, Point, self.updateCurrentPosition)
+        rospy.Subscriber(topic, PointStamped, self.updateCurrentPosition)
         
        
     """
@@ -86,8 +86,8 @@ class pointCurrentState(Widget):
         self.prev_X_pos = self.current_X_pos
         self.prev_Y_pos = self.current_Y_pos
         
-        self.updateX = data.x
-        self.updateY = data.y
+        self.updateX = data.point.x
+        self.updateY = data.point.y
         self.current_emotion = [self.updateX, self.updateY]
         
         # Transform the points into the correspondent xy-space.
@@ -120,11 +120,11 @@ class pointCurrentState(Widget):
     """
     Creates the message to be published
     """
-    def buildMessage(self, dataMsg):        
-        state = Point()
-        #state.header.frame_id = key
-        state.x = dataMsg[0]
-        state.y = dataMsg[1]
+    def buildMessage(self, dataMsg, key):        
+        state = PointStamped()
+        state.header.frame_id = key
+        state.point.x = dataMsg[0]
+        state.point.y = dataMsg[1]
         #state.position.y = dataMsg[1]
         
         return state
@@ -132,7 +132,7 @@ class pointCurrentState(Widget):
     def publishEmotion(self, key):
         strEmotion = "emotion: ", key       
         rospy.loginfo(strEmotion)
-        state_msg = self.buildMessage(self.current_emotion)
+        state_msg = self.buildMessage(self.current_emotion, key)
         self.pub.publish(state_msg)
 
             
@@ -209,7 +209,7 @@ class Map(App):
         
         # Initialize the publisher, the topic and name it.        
         topic = 'current_emotion'
-        self.pub = rospy.Publisher(topic, Point, queue_size=10)
+        self.pub = rospy.Publisher(topic, PointStamped, queue_size=10)
         rospy.init_node('valence_arousal_map', anonymous=True)
         rospy.loginfo("I will publish to the topic %s", topic)
 
@@ -267,11 +267,11 @@ class Map(App):
     """
     Creates the message to be published
     """
-    def buildMessage(self, dataMsg):        
-        state = Point()
-        #state.header.frame_id = key
-        state.x = dataMsg[0]
-        state.y = dataMsg[1]
+    def buildMessage(self, dataMsg, key):        
+        state = PointStamped()
+        state.header.frame_id = key
+        state.point.x = dataMsg[0]
+        state.point.y = dataMsg[1]
         #state.position.y = dataMsg[1]
         
         return state
@@ -279,7 +279,7 @@ class Map(App):
     def publishEmotion(self, key):
         strEmotion = "emotion: ", key       
         rospy.loginfo(strEmotion)
-        state_msg = self.buildMessage(self.current_emotion)
+        state_msg = self.buildMessage(self.current_emotion, key)
         self.pub.publish(state_msg)
         
     """
@@ -314,7 +314,7 @@ class Map(App):
         self.publishEmotion(key)
 
     def bored(self, obj):
-        key = "bornedness"
+        key = "boredom"
         valence = self.emotional_dictionary[key][0]
         arousal = self.emotional_dictionary[key][1]
         self.current_emotion = [valence, arousal]
