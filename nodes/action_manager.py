@@ -13,6 +13,7 @@ import time
 #import numpy as np
 import rospy
 from geometry_msgs.msg import PointStamped
+from std_msgs.msg import String, Empty
 
 from naoqi import ALProxy
 from naoqi import ALBroker
@@ -32,25 +33,32 @@ class action_manager():
         self.leds = ALProxy("ALLeds")
         self.motion = ALProxy("ALMotion")
         
+        self.state_activity = " "
+        self.do_it_once = True
+        
         # Get the ~private namespace parameters from command line or launch file.
         topic = rospy.get_param('~topic', 'current_emotion')
         rospy.loginfo("I will subscribe to the topic %s", topic)
         # Create a subscriber with appropriate topic, custom message and name of callback function.
-        rospy.Subscriber(topic, PointStamped, self.express_current_emotion)
-        # Wait for messages on topic, go to callback function when new messages arrive.
-        rospy.spin()
+        rospy.Subscriber(topic, PointStamped, self.current_emotion_callback)
+        rospy.Subscriber('state_activity', String, self.current_state_callback)
+        #listen for when to stop
+        rospy.Subscriber('stop_learning', Empty, self.stop_request_callback)
 
         # Disable ALAutonomousLife to better demonstrate emotional actions.
         self.autonomous_life = ALProxy("ALAutonomousLife")
         if (self.autonomous_life.getState() != "disabled"):
             self.autonomous_life.setState("disabled")
         time.sleep(1.0)
-        self.motion.wakeUp()
+        #self.motion.wakeUp()
+        
+        # Wait for messages on topic, go to callback function when new messages arrive.
+        rospy.spin()
         
     #TODO: Run current emotion when a tactile is touch
         
     # Create a callback function for the subscriber.
-    def express_current_emotion(self, data, *_args):
+    def current_emotion_callback(self, data, *_args):
         """ 
         Expresses the current emotion from the current valence and arousal values in ALMemory.                        
         """
@@ -157,17 +165,28 @@ class action_manager():
         # Speech.
         #self.tts.post.say(string_to_say)
         # Motion.
-        self.motion.post.angleInterpolation(motion_names, motion_keys, motion_times, True)
+        if self.state_activity == "WAITING_FOR_FEEDBACK" and self.do_it_once == True:
+            self.motion.post.angleInterpolation(motion_names, motion_keys, motion_times, True)
+            self.do_it_once = False
         # Eyes.       
         self.leds.fadeRGB("FaceLeds", hex_eye_colour, eye_duration)
-        time.sleep(5.0)
-        self.leds.reset("FaceLeds")
+        time.sleep(1.0)
+        #self.leds.reset("FaceLeds")
 
         # Reset speech parameters to nominal.
         self.tts.setParameter("pitchShift", 0)
         self.tts.setVolume(0.5)
-
-
+        
+                
+    def current_state_callback(self, data):
+        self.state_activity = data.data
+        self.do_it_once = True
+        
+    
+    def stop_request_callback(self, data):
+        self.motion.rest()
+        rospy.signal_shutdown('Interaction exited')
+        
 def main():
     
     myBroker = ALBroker("myBroker",

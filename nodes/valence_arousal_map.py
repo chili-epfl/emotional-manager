@@ -17,6 +17,7 @@ from kivy.config import Config
 import rospy
 
 from geometry_msgs.msg import PointStamped, Point
+from std_msgs.msg import Empty
 
 # Set up the default size screen
 Config.set('graphics', 'width', '1200')
@@ -30,7 +31,6 @@ class emotionWidget(Widget):
         with self.canvas:
             Line(points=[400, 0, 400, 600], width = 1)
             Line(points=[0, 300, 800, 300], width = 1)
-            Label(text = 'valence')
 
 """
 Plots the current state in the map using a single red dot
@@ -42,6 +42,7 @@ class pointCurrentState(Widget):
         
         topic = 'current_emotion'
         self.pub = rospy.Publisher(topic, PointStamped, queue_size=10)
+
     
         with self.canvas:
             self.color = Color(1, 0, 0)
@@ -59,7 +60,7 @@ class pointCurrentState(Widget):
         # Initialize the subscriber, the topic and name it.
         topic = 'update_position'
         rospy.Subscriber(topic, PointStamped, self.updateCurrentPosition)
-        
+
        
     """
     Callback that draws the point according to the new position
@@ -131,7 +132,7 @@ class pointCurrentState(Widget):
 
     def publishEmotion(self, key):
         strEmotion = "emotion: ", key       
-        rospy.loginfo(strEmotion)
+        #rospy.loginfo(strEmotion)
         state_msg = self.buildMessage(self.current_emotion, key)
         self.pub.publish(state_msg)
 
@@ -163,6 +164,7 @@ class engageStatus(Widget):
             self.size = (30, 10)
             self.current_level = 10
             self.previous_level = Rectangle(pos=self.pos, size=self.size)
+            self.updateHeight = 0
                     
         # Initialize the subscriber, the topic and name it.
         topic = 'level_engagement'
@@ -189,6 +191,7 @@ class engageStatus(Widget):
                 diff = diff + step
                 #rospy.loginfo("diff: %s", diff)
                 rospy.sleep(0.01)
+            #self.canvas.clear(self.previous_level)
     
     
     """
@@ -201,7 +204,7 @@ class engageStatus(Widget):
         self.plotLevel(diff)
 
            
-class Map(App):
+class Map(App, engageStatus):
         
     def build(self):
         
@@ -210,6 +213,8 @@ class Map(App):
         # Initialize the publisher, the topic and name it.        
         topic = 'current_emotion'
         self.pub = rospy.Publisher(topic, PointStamped, queue_size=10)
+        rospy.Subscriber('stop_learning', Empty, self.stop_request_callback)    #listen for when to stop
+        
         rospy.init_node('valence_arousal_map', anonymous=True)
         rospy.loginfo("I will publish to the topic %s", topic)
 
@@ -234,6 +239,7 @@ class Map(App):
         bored_btn = Button(text = 'bored', pos = (100, 100), size = (50, 50))
         label_valence = Label(text = 'valence', pos = (700, 225))
         label_arousal = Label(text = 'arousal', pos = (400, 0))
+        label_eng_level = Label(text = 'Engagement level: ' + str(self.updateHeight), pos = (1000, 510))
         point_current_state = pointCurrentState()
                 
         emo_map.add_widget(grid)
@@ -244,7 +250,8 @@ class Map(App):
         emo_map.add_widget(bored_btn)
         emo_map.add_widget(label_valence)
         emo_map.add_widget(label_arousal)
-        emo_map.add_widget(point_current_state)  
+        emo_map.add_widget(point_current_state) 
+        emo_map.add_widget(label_eng_level)
         
         happy_btn.bind(on_release=self.happy)
         angry_btn.bind(on_release=self.angry)
@@ -255,7 +262,7 @@ class Map(App):
         # Engagement Map
         grid_eng = engagementMap()
         eng_map.add_widget(grid_eng)
-        engage_status = engageStatus()                
+        engage_status = engageStatus()              
         eng_map.add_widget(engage_status)
         
         mainWidget.add_widget(emo_map)
@@ -319,6 +326,11 @@ class Map(App):
         arousal = self.emotional_dictionary[key][1]
         self.current_emotion = [valence, arousal]
         self.publishEmotion(key)
+        
+    
+    def stop_request_callback(self, data):
+        rospy.signal_shutdown('Interaction exited')
+        App.get_running_app().stop()
     
     
     

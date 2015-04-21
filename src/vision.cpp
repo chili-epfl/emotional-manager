@@ -47,6 +47,7 @@ int look_up_counter = 0;
 int look_down_counter = 0;
 int smile_counter = 0;
 string state = " ";
+image_window win;
 
 // Create a dictionary for the markers.
 std::map<string, int> partToPoint = {
@@ -112,7 +113,7 @@ void sizeHead(ros::Publisher sizeHead_pub, shape_predictor &pose_model, cv_image
     sizeHead_pub.publish(msgSizeHead);
 }
 
-void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face){
+void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face, image_window &win){
 
     // Get mouth
     cv::Point2f mouth_up = getPointFromPart(pose_model, cimg, face, "mouth_up");
@@ -129,6 +130,8 @@ void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_ima
             smile_counter = smile_counter +1;
             if(smile_counter>5){
                 cout<< "Someone smiled!"<<endl;
+                const rectangle r;
+                win.add_overlay(r,rgb_pixel(255,0,0), "Someone smiled!");
                 std_msgs::Empty msgEmpty;
                 smile_pub.publish(msgEmpty);
                 smile_counter = 0;
@@ -351,6 +354,11 @@ void stateActivityCallback(const std_msgs::String::ConstPtr& msg){
     state = msg->data.c_str();
 }
 
+void stopActivityCallback(const std_msgs::Empty::ConstPtr& msg){
+    ros::shutdown();
+    win.close_window();
+}
+
 int main(int argc, char **argv)
 {
 
@@ -382,6 +390,7 @@ int main(int argc, char **argv)
     ros::Publisher sizeHead_pub = n.advertise<std_msgs::Int16>("sizeHead", 1000);
     ros::Publisher novelty_pub = n.advertise<std_msgs::Float32>("novelty", 1000);
     ros::Subscriber state_sub = n.subscribe("state_activity", 1000, stateActivityCallback);
+    ros::Subscriber stop_sub = n.subscribe("stop_learning", 1000, stopActivityCallback);
 
     ros::Rate loop_rate(20);
 
@@ -395,7 +404,7 @@ int main(int argc, char **argv)
         cv::VideoCapture cap(0);
         cap.set(CV_CAP_PROP_FRAME_WIDTH, 640);
         cap.set(CV_CAP_PROP_FRAME_HEIGHT, 360);
-        image_window win;
+
 
         // Load face detection and pose estimation models.
         frontal_face_detector detector = get_frontal_face_detector();
@@ -430,7 +439,10 @@ int main(int argc, char **argv)
             // Amount of movement using optical flow
             if(state != "WAITING_FOR_FEEDBACK"){
                 amountMovement(movement_pub, rgbFrames, grayFrames, prevGrayFrame, opticalFlow, points1, points2, needToInit);
+            }else{
+                needToInit = true;
             }
+
             cv_image<bgr_pixel> flowimg(rgbFrames);
             win.set_image(flowimg);
 
@@ -462,7 +474,7 @@ int main(int argc, char **argv)
 
                 lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
                 sizeHead(sizeHead_pub, pose_model, cimg, faces[i]);
-                smileDetector(smile_pub, pose_model, cimg, faces[i]);
+                smileDetector(smile_pub, pose_model, cimg, faces[i], win);
                 novelty(novelty_pub, lookTowards, faces, mu, eps, threshold);
             }
 

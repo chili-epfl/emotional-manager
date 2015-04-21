@@ -11,11 +11,9 @@ import rospy
 from std_msgs.msg import Int16, Int32, String, Empty, Float32
 from geometry_msgs.msg import PointStamped, Point
 
-from naoqi import ALProxy
 from naoqi import ALBroker
 
 from IRT import engagement_model
-from bipolar import bipolarSigmoid
 
 NAO_IP = "192.168.1.12"
 #global callback
@@ -65,6 +63,8 @@ class emotion_manager():
         rospy.Subscriber("nb_repetitions", Int16, self.repetitions_callback)    # The number of word repetitions
         rospy.Subscriber("time_response", Float32, self.response_callback)      # Response time till the child writes
         rospy.Subscriber("time_writing", Float32, self.writing_callback)        # Writing time during demostration
+                
+        rospy.Subscriber('stop_learning', Empty, self.stop_request_callback)    #listen for when to stop
         
         self.pub_engagement = rospy.Publisher('level_engagement', Point, queue_size=10)        
         
@@ -143,8 +143,8 @@ class emotion_manager():
         looking = data.data
         if looking == "right" or looking == "left" or looking == "up":
             #Calculate the new vector to move towards
-            direction_x = self.emotional_dictionary['bored']['x'] - self.current_position['x']
-            direction_y = self.emotional_dictionary['bored']['y'] - self.current_position['y']                       
+            direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
+            direction_y = self.emotional_dictionary['boredom']['y'] - self.current_position['y']                       
             
             sx, sy = self.clampRatio(direction_x, direction_y)
             
@@ -175,8 +175,8 @@ class emotion_manager():
         rospy.loginfo(rospy.get_caller_id() + " Time spend in the same activity: %s", data.data)
         featureName = 'time_activity'
         #Calculate the new vector to move towards
-        direction_x = self.emotional_dictionary['bored']['x'] - self.current_position['x']
-        direction_y = self.emotional_dictionary['bored']['y'] - self.current_position['y']
+        direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
+        direction_y = self.emotional_dictionary['boredom']['y'] - self.current_position['y']
         
         sx, sy = self.clampRatio(direction_x, direction_y)
             
@@ -204,8 +204,8 @@ class emotion_manager():
         rospy.loginfo(rospy.get_caller_id() + "Repetitions performed by the children: %s", data.data)
         featureName = 'nb_repetitions'
         #Calculate the new vector to move towards
-        direction_x = self.emotional_dictionary['bored']['x'] - self.current_position['x']
-        direction_y = self.emotional_dictionary['bored']['y'] - self.current_position['y']
+        direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
+        direction_y = self.emotional_dictionary['boredom']['y'] - self.current_position['y']
         
         sx, sy = self.clampRatio(direction_x, direction_y)
             
@@ -246,7 +246,7 @@ class emotion_manager():
     def movement_callback(self, data):
         global callback
         callback = False
-        rospy.loginfo(rospy.get_caller_id() + "The children is moving: %s", data.data)
+        #rospy.loginfo(rospy.get_caller_id() + "The children is moving: %s", data.data)
         featureName = 'movement'
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['activation']['x'] - self.current_position['x']
@@ -270,7 +270,7 @@ class emotion_manager():
         featureName = 'sizeHead'
         #Calculate the new vector to move towards
         if data.data > 90:
-            rospy.loginfo(rospy.get_caller_id() + "The children is close to the robot" + str(data.data))
+            #rospy.loginfo(rospy.get_caller_id() + "The children is close to the robot" + str(data.data))
             direction_x = self.emotional_dictionary['fear']['x'] - self.current_position['x']
             direction_y = self.emotional_dictionary['fear']['y'] - self.current_position['y']
         
@@ -337,6 +337,10 @@ class emotion_manager():
         point = Point()
         point.x = engagement_level    
         self.pub_engagement.publish(point)
+        
+    
+    def stop_request_callback(self, data):
+        rospy.signal_shutdown('Interaction exited')
         
         
 def main():
