@@ -71,11 +71,9 @@ class pointCurrentState(Widget):
             
             self.color
             for i in range(intp_x.size):   
-            
-                # Remove the previous point.
-                self.canvas.remove(self.previous_point)
+
                 # The current point becomes the previous.
-                self.previous_point = Ellipse(pos=(intp_x[i], intp_y[i]), size=(self.d, self.d))
+                self.previous_point.pos = intp_x[i], intp_y[i]
                 rospy.sleep(0.001)
                    
     
@@ -162,14 +160,14 @@ class engageStatus(Widget):
             self.color = Color(1, 0, 0)
             self.pos = (1035,300)
             self.size = (30, 10)
-            self.current_level = 10
-            self.previous_level = Rectangle(pos=self.pos, size=self.size)
-            self.updateHeight = 0
-                    
+            self.current_level = 0
+            self.previous_level = Rectangle(pos=self.pos, size=(30, self.current_level))
+            self.label = Label(text = str(self.current_level), pos = (1060, 510))
+            self.label_eng = Label(text = 'Engagement level: ', pos = (990, 510))
+            
         # Initialize the subscriber, the topic and name it.
         topic = 'level_engagement'
         rospy.Subscriber(topic, Point, self.updateEngLevel)
-
 
     """
     Callback that draws the level according to the new position
@@ -182,25 +180,20 @@ class engageStatus(Widget):
             else:
                 step = 1
             while diff != 0.0:
-                self.color
+                
                 self.current_level = self.current_level - step
-                # Remove the previous level.
-                self.canvas.remove(self.previous_level)
-                # The current level becomes the previous.
-                self.previous_level = Rectangle(pos=self.pos, size=(30, self.current_level))
+                self.previous_level.size = 30, self.current_level
+                self.label.text = str(self.current_level)
                 diff = diff + step
-                #rospy.loginfo("diff: %s", diff)
-                rospy.sleep(0.01)
-            #self.canvas.clear(self.previous_level)
-    
+                #rospy.loginfo("diff: %s", diff)               
+                rospy.sleep(0.01)   
     
     """
     Callback that updates the point to the current position
     """   
     def updateEngLevel(self, data):
         update_engagement = data
-        self.updateHeight = update_engagement.x
-        diff = self.updateHeight - self.current_level
+        diff = update_engagement.x - self.current_level
         self.plotLevel(diff)
 
            
@@ -239,7 +232,7 @@ class Map(App, engageStatus):
         bored_btn = Button(text = 'bored', pos = (100, 100), size = (50, 50))
         label_valence = Label(text = 'valence', pos = (700, 225))
         label_arousal = Label(text = 'arousal', pos = (400, 0))
-        label_eng_level = Label(text = 'Engagement level: ' + str(self.updateHeight), pos = (1000, 510))
+
         point_current_state = pointCurrentState()
                 
         emo_map.add_widget(grid)
@@ -251,7 +244,7 @@ class Map(App, engageStatus):
         emo_map.add_widget(label_valence)
         emo_map.add_widget(label_arousal)
         emo_map.add_widget(point_current_state) 
-        emo_map.add_widget(label_eng_level)
+        emo_map.add_widget(self.label)
         
         happy_btn.bind(on_release=self.happy)
         angry_btn.bind(on_release=self.angry)

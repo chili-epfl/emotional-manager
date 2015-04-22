@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string>
+#include <thread>
 
 #define MAX_COUNT 100
 char imageFileName[32];
@@ -113,7 +114,7 @@ void sizeHead(ros::Publisher sizeHead_pub, shape_predictor &pose_model, cv_image
     sizeHead_pub.publish(msgSizeHead);
 }
 
-void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face, image_window &win){
+void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face){
 
     // Get mouth
     cv::Point2f mouth_up = getPointFromPart(pose_model, cimg, face, "mouth_up");
@@ -129,9 +130,7 @@ void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_ima
         if (contact==true){
             smile_counter = smile_counter +1;
             if(smile_counter>5){
-                cout<< "Someone smiled!"<<endl;
-                const rectangle r;
-                win.add_overlay(r,rgb_pixel(255,0,0), "Someone smiled!");
+                cout <<"Someone smiled"<< endl;
                 std_msgs::Empty msgEmpty;
                 smile_pub.publish(msgEmpty);
                 smile_counter = 0;
@@ -443,9 +442,6 @@ int main(int argc, char **argv)
                 needToInit = true;
             }
 
-            cv_image<bgr_pixel> flowimg(rgbFrames);
-            win.set_image(flowimg);
-
             std::swap(points2, points1);
             points1.clear();
             grayFrames.copyTo(prevGrayFrame);
@@ -454,15 +450,12 @@ int main(int argc, char **argv)
             /** Turn OpenCV's Mat into something dlib can deal with.  Note that this just wraps the Mat object,
              * it doesn't copy anything.  So cimg is only valid as long as temp is valid.
              */
-            cv_image<bgr_pixel> cimg(frame);
+            cv_image<bgr_pixel> cimg(rgbFrames);
 
             // Detect faces
             std::vector<rectangle> faces = detector(cimg);
             // Find the pose of each face.
             std::vector<full_object_detection> shapes;
-
-            //std::vector<rectangle> noses;
-            //std::vector<rectangle> sides;
 
             for (unsigned long i = 0; i < faces.size(); ++i){
                 full_object_detection shape = pose_model(cimg, faces[i]);
@@ -471,10 +464,9 @@ int main(int argc, char **argv)
                 shapeToPoints(rgbFrames, shape);
 
                 std::vector<bool> lookTowards;
-
                 lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
                 sizeHead(sizeHead_pub, pose_model, cimg, faces[i]);
-                smileDetector(smile_pub, pose_model, cimg, faces[i], win);
+                smileDetector(smile_pub, pose_model, cimg, faces[i]);
                 novelty(novelty_pub, lookTowards, faces, mu, eps, threshold);
             }
 
@@ -506,28 +498,9 @@ int main(int argc, char **argv)
             win.clear_overlay();
             win.set_image(cimg);
             win.add_overlay(render_face_detections(shapes));
-            /*for( auto nose : noses)
-                win.add_overlay(nose);
-            for( auto side : sides)
-                win.add_overlay(side);*/
 
             ros::spinOnce();
         }
-
-        /*cout << "please wait, recording the landmark positions during eye_contacts. it could take a while"<< endl;
-
-        for(auto contact : contacts){
-            for (unsigned long j = 0; j < contact.num_parts(); ++j){
-                myfile << contact.part(j).x() << " ";
-            }
-            for (unsigned long j = 0; j < contact.num_parts(); ++j){
-                myfile << contact.part(j).y() << " ";
-            }
-            myfile << endl;
-        }
-
-        myfile.close();*/
-
     }
     catch(serialization_error& e)
     {

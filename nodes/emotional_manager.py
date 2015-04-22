@@ -16,8 +16,6 @@ from naoqi import ALBroker
 from IRT import engagement_model
 
 NAO_IP = "192.168.1.12"
-#global callback
-#callback = True
 
 class emotion_manager():
     
@@ -38,7 +36,7 @@ class emotion_manager():
                                     'unpleasant':{'x':-0.90,'y':0.00}}
                              
         self.current_position = {'x':0,'y':0}
-        self.weights = {'lookAt':0.14, 'time_activity':0.14, 'nb_repetitions':0.14, 'smile':0.14, 'movement':0.14, 'sizeHead':0.14, 'novelty':0.14, 'neutral':0.14}
+        self.weights = {'lookAt':0.05, 'time_activity':0.01, 'nb_repetitions':0.01, 'smile':0.65, 'movement':0.14, 'sizeHead':0.07, 'novelty':0.07, 'neutral':0.14}
                     
         self.features = {'lookAt':{'x':0.00,'y':0.00},
                          'time_activity':{'x':0.00,'y':0.00}, 
@@ -107,7 +105,7 @@ class emotion_manager():
     
 #TODO: Less importance to the previous events passing the feature and the weight  
     def weighting(self):        
-        # Weights order: looking_to_robot|activity_time|repetitions|recognition        
+      
         weightedSumFeatures = {'x':0,'y':0}
        
        # let us sum all features considering the weights
@@ -135,11 +133,8 @@ class emotion_manager():
     #----------------------------------------------CALLLBACKS----------------------------------------------
     
     def look_robot_callback(self, data):
-        global callback
-        callback = False
         rospy.loginfo(rospy.get_caller_id() + " The children is looking: %s", data.data)
         #If the child does not give attention to the robot we assume is bored
-        featureName = 'lookAt'
         looking = data.data
         if looking == "right" or looking == "left" or looking == "up":
             #Calculate the new vector to move towards
@@ -154,8 +149,8 @@ class emotion_manager():
         #If not we assume is happy        
         else:
             #Calculate the new vector to move towards
-            direction_x = self.emotional_dictionary['neutral']['x'] - self.current_position['x']
-            direction_y = self.emotional_dictionary['neutral']['y'] - self.current_position['y']   
+            direction_x = self.emotional_dictionary['happiness']['x'] - self.current_position['x']
+            direction_y = self.emotional_dictionary['happiness']['y'] - self.current_position['y']   
             
             sx, sy = self.clampRatio(direction_x, direction_y)
             
@@ -166,14 +161,10 @@ class emotion_manager():
         self.weighting()
         msg = self.buildMessage()
         self.pub_direction.publish(msg)
-        callback = True
-
+        
     
     def time_callback(self, data):
-        global callback
-        callback = False
         rospy.loginfo(rospy.get_caller_id() + " Time spend in the same activity: %s", data.data)
-        featureName = 'time_activity'
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
         direction_y = self.emotional_dictionary['boredom']['y'] - self.current_position['y']
@@ -195,14 +186,10 @@ class emotion_manager():
         self.weighting()
         msg = self.buildMessage()
         self.pub_direction.publish(msg)
-        callback = True
-
+        
 
     def repetitions_callback(self, data):
-        global callback
-        callback = False
         rospy.loginfo(rospy.get_caller_id() + "Repetitions performed by the children: %s", data.data)
-        featureName = 'nb_repetitions'
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
         direction_y = self.emotional_dictionary['boredom']['y'] - self.current_position['y']
@@ -219,14 +206,10 @@ class emotion_manager():
         self.weighting()
         msg = self.buildMessage()
         self.pub_direction.publish(msg)
-        callback = True
 
         
     def smile_robot_callback(self, data):
-        global callback
-        callback = False
         rospy.loginfo(rospy.get_caller_id() + "The children is smiling at the robot")
-        featureName = 'smile'
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['happiness']['x'] - self.current_position['x']
         direction_y = self.emotional_dictionary['happiness']['y'] - self.current_position['y']
@@ -240,14 +223,10 @@ class emotion_manager():
         self.weighting()
         msg = self.buildMessage()
         self.pub_direction.publish(msg)
-        callback = True
         
         
     def movement_callback(self, data):
-        global callback
-        callback = False
         #rospy.loginfo(rospy.get_caller_id() + "The children is moving: %s", data.data)
-        featureName = 'movement'
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['activation']['x'] - self.current_position['x']
         direction_y = self.emotional_dictionary['activation']['y'] - self.current_position['y']
@@ -261,13 +240,9 @@ class emotion_manager():
         self.weighting()
         msg = self.buildMessage()
         self.pub_direction.publish(msg)
-        callback = True
 
               
     def proximity_callback(self, data):
-        global callback
-        callback = False
-        featureName = 'sizeHead'
         #Calculate the new vector to move towards
         if data.data > 90:
             #rospy.loginfo(rospy.get_caller_id() + "The children is close to the robot" + str(data.data))
@@ -283,14 +258,10 @@ class emotion_manager():
             self.weighting()
             msg = self.buildMessage()
             self.pub_direction.publish(msg)
-            callback = True
 
             
     def novelty_callback(self, data):
-        global callback
-        callback = False
         rospy.loginfo(rospy.get_caller_id() + "The robot saw a novelty!")
-        featureName = 'novelty'
         #Calculate the new vector to move towards     
         direction_x = self.emotional_dictionary['surprise']['x'] - self.current_position['x']
         direction_y = self.emotional_dictionary['surprise']['y'] - self.current_position['y']
@@ -305,14 +276,13 @@ class emotion_manager():
         self.weighting()
         msg = self.buildMessage()
         self.pub_direction.publish(msg)        
-        callback = True
+        
         
     def response_callback(self, data):
         
         # Convert to seconds
         rt_sec = data.data / 1000
-        #bipolar(P_results, sigma)
-        
+        #bipolar(P_results, sigma)      
         rospy.loginfo(rt_sec)
         
                           

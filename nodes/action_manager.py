@@ -138,7 +138,7 @@ class action_manager():
         # Stance (torso position + arms) - directly proportional to valence
         # Shoulders have a pitch of +2 to -2 radians.
         # Used in absolute mode, central pitch value is 1.4 radians.
-        shoulder_pitch = 1.4 - valence * 0.5
+        shoulder_pitch = 1.4 - valence*5 * 0.5
 
         motion_names.append("LShoulderPitch")
         motion_times.append([0.5, 2, 4])
@@ -147,6 +147,17 @@ class action_manager():
         motion_names.append("RShoulderPitch")
         motion_times.append([0.5, 2, 4])
         motion_keys.append([1.4, shoulder_pitch, 1.4])
+        
+        
+        shoulder_roll = valence * -1.5
+        
+        motion_names.append("LShoulderRoll")
+        motion_times.append([0.5, 2, 4])
+        motion_keys.append([0.5, +shoulder_roll, 0.5])
+
+        motion_names.append("RShoulderRoll")
+        motion_times.append([0.5, 2, 4])
+        motion_keys.append([-0.5, -shoulder_roll, -0.5])
 
         # Ankles have a pitch of approx +0.9 to -1.1radians.
         # Used in absolute mode, central pitch value is 0.08 radians.
