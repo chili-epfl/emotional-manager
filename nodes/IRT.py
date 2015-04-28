@@ -121,14 +121,11 @@ class engagement_model():
         
     def get_engagement(self, rt):
         # Form of the model: P(correct|rt,L) = u/1+exp^(-a(-rt+b*L))
-        P_corr = self.func(rt, self.a, self.b)
-        
+        P_corr = self.func(rt, self.a, self.b)        
         # Probability of being disengaged
-        P_disengaged = (self.u - P_corr) / self.u
-        
+        P_disengaged = (self.u - P_corr) / self.u        
         # Probability of being engaged
-        P_engaged = 1 - P_disengaged
-        
+        P_engaged = 1 - P_disengaged        
         plt.plot(rt, P_corr, 'o')
         
         return P_engaged, P_disengaged, P_corr

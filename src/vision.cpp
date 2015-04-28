@@ -47,6 +47,7 @@ int look_left_counter = 0;
 int look_up_counter = 0;
 int look_down_counter = 0;
 int smile_counter = 0;
+bool new_child = false;
 string state = " ";
 image_window win;
 
@@ -62,6 +63,28 @@ std::map<string, int> partToPoint = {
     {"mouth_right", 48},
     {"mouth_left", 54}
 };
+
+
+double tt_tic=0;
+
+void tic(){
+    tt_tic = cv::getTickCount();
+}
+void toc(){
+    double tt_toc = (cv::getTickCount() - tt_tic)/(cv::getTickFrequency());
+    printf ("toc: %4.3f sn\n", tt_toc);
+}
+
+// Get current date/time, format is YYYY-MM-DD.HH:mm:ss
+const std::string currentDateTime() {
+    time_t     now = time(0);
+    struct tm  tstruct;
+    char       buf[80];
+    tstruct = *localtime(&now);
+    strftime(buf, sizeof(buf), "%Y-%m-%d_%X", &tstruct);
+
+    return buf;
+}
 
 // Return the point correspondent to the dictionary marker.
 cv::Point2f getPointFromPart(shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face, string name){
@@ -329,12 +352,16 @@ cv::VideoWriter prepareVideoRecord(cv::VideoCapture cap){
 
     cv::Size frameSize(static_cast<int>(dWidth), static_cast<int>(dHeight));
 
-    cv::VideoWriter oVideoWriter ("/home/ferran/.ros/visionLog/Session.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); //initialize the VideoWriter object
+    //Generate video file name based on the date
+    std::stringstream ss;
+    ss << "/home/ferran/.ros/visionLog/" << currentDateTime() << ".avi";
+    std::string s = ss.str();
+
+    cv::VideoWriter oVideoWriter (s, CV_FOURCC('P','I','M','1'), 20, frameSize, true); //initialize the VideoWriter object
 
     if ( !oVideoWriter.isOpened() ) //if not initialize the VideoWriter successfully, exit the program
     {
         cout << "ERROR: Failed to write the video" << endl;
-
     }
 
     return oVideoWriter;
@@ -356,6 +383,10 @@ void stateActivityCallback(const std_msgs::String::ConstPtr& msg){
 void stopActivityCallback(const std_msgs::Empty::ConstPtr& msg){
     ros::shutdown();
     win.close_window();
+}
+
+void newChildCallback(const std_msgs::String::ConstPtr& msg){
+    new_child = true;
 }
 
 int main(int argc, char **argv)
@@ -390,6 +421,7 @@ int main(int argc, char **argv)
     ros::Publisher novelty_pub = n.advertise<std_msgs::Float32>("novelty", 1000);
     ros::Subscriber state_sub = n.subscribe("state_activity", 1000, stateActivityCallback);
     ros::Subscriber stop_sub = n.subscribe("stop_learning", 1000, stopActivityCallback);
+    ros::Subscriber new_child_sub = n.subscribe("new_child", 1000, newChildCallback);
 
     ros::Rate loop_rate(20);
 
@@ -400,7 +432,7 @@ int main(int argc, char **argv)
         myfile.open (filename);
         std::vector<full_object_detection> contacts;
 
-        cv::VideoCapture cap(0);
+        cv::VideoCapture cap(1);
         cap.set(CV_CAP_PROP_FRAME_WIDTH, 640);
         cap.set(CV_CAP_PROP_FRAME_HEIGHT, 360);
 
@@ -424,7 +456,6 @@ int main(int argc, char **argv)
 
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed()) {
-
             cap >> frame;
 
             //Resize and crop the boundaries to get 4:3 proportion
@@ -442,6 +473,13 @@ int main(int argc, char **argv)
                 needToInit = true;
             }
 
+            if (new_child == true){
+                oVideoWriter = prepareVideoRecord(cap);
+                new_child = false;
+            }
+
+            oVideoWriter << frame;
+
             std::swap(points2, points1);
             points1.clear();
             grayFrames.copyTo(prevGrayFrame);
@@ -453,7 +491,9 @@ int main(int argc, char **argv)
             cv_image<bgr_pixel> cimg(rgbFrames);
 
             // Detect faces
+
             std::vector<rectangle> faces = detector(cimg);
+
             // Find the pose of each face.
             std::vector<full_object_detection> shapes;
 
@@ -461,7 +501,7 @@ int main(int argc, char **argv)
                 full_object_detection shape = pose_model(cimg, faces[i]);
                 shapes.push_back(shape);
                 //Convert to Point2f
-                shapeToPoints(rgbFrames, shape);
+                //shapeToPoints(rgbFrames, shape);
 
                 std::vector<bool> lookTowards;
                 lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
@@ -471,7 +511,7 @@ int main(int argc, char **argv)
             }
 
             //Lets put the markers to the video
-            oVideoWriter.write(rgbFrames);
+            //oVideoWriter.write(rgbFrames);
 
             if( faces.size() == 0){
                 std::vector<float> X(6,0);
@@ -498,7 +538,6 @@ int main(int argc, char **argv)
             win.clear_overlay();
             win.set_image(cimg);
             win.add_overlay(render_face_detections(shapes));
-
             ros::spinOnce();
         }
     }

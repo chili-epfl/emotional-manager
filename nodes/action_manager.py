@@ -32,17 +32,20 @@ class action_manager():
         self.tts = ALProxy("ALTextToSpeech")
         self.leds = ALProxy("ALLeds")
         self.motion = ALProxy("ALMotion")
+        self.posture = ALProxy("ALRobotPosture")
         
         self.state_activity = " "
+        self.activity = " "
         self.do_it_once = True
+        self.motion.setStiffnesses("Body", 0.5)
         
         # Get the ~private namespace parameters from command line or launch file.
         topic = rospy.get_param('~topic', 'current_emotion')
         rospy.loginfo("I will subscribe to the topic %s", topic)
-        # Create a subscriber with appropriate topic, custom message and name of callback function.
+        
         rospy.Subscriber(topic, PointStamped, self.current_emotion_callback)
-        rospy.Subscriber('state_activity', String, self.current_state_callback)
-        #listen for when to stop
+        rospy.Subscriber('state_activity', String, self.current_state_callback)     #listen for when to stop
+        rospy.Subscriber('activity', String, self.activity_callback)        
         rospy.Subscriber('stop_learning', Empty, self.stop_request_callback)
 
         # Disable ALAutonomousLife to better demonstrate emotional actions.
@@ -69,11 +72,11 @@ class action_manager():
         motion_keys = list()
         
         # Eyes.
-        eye_colour_lookup_table = [[(0xF82C35),(0xF82C35),(0xD55528),(0xD55528),(0xFF622B),(0xFF622B),(0xFFB047),(0xFFB047),(0xFFB047),(0xFFB047),(0xFFB047)],
-                                [(0xF82C35),(0xF82C35),(0xD5542A),(0xD5542A),(0xE96A37),(0xFF8232),(0xFF8232),(0xFEB340),(0xFEB340),(0xFEB340),(0xFFFF00)],
-                                [(0xF62D35),(0xF62D35),(0xF62D35),(0xE96A37),(0xE96A37),(0xFF984D),(0xFF8232),(0xFDC147),(0xFFB144),(0xFFFF00),(0xFFFF00)],
-                                [(0xF72C32),(0xF72C32),(0xFF4048),(0xFE5761),(0xED8659),(0xFEB278),(0xFECE6A),(0xFECE6A),(0xFEE566),(0xFFFF00),(0xFFFF00)],
-                                [(0xF6255C),(0xF6255C),(0xF9386F),(0xFD585E),(0xF78C84),(0xFFB379),(0xFEDEA1),(0xFEE67C),(0xFFE564),(0xFFFF00),(0xFFFF00)],
+        eye_colour_lookup_table = [[(0xF82C35),(0xF82C35),(0xD55528),(0xD55528),(0xFF622B),(0xFF622B),(0xFFB047),(0xFFB047),(0xFFB047),(0x56C427),(0x56C427)],
+                                [(0xF82C35),(0xF82C35),(0xD5542A),(0xD5542A),(0xE96A37),(0xFF8232),(0xFF8232),(0xFEB340),(0xFEB340),(0x56C427),(0x56C427)],
+                                [(0xF62D35),(0xF62D35),(0xF62D35),(0xE96A37),(0xE96A37),(0xFF984D),(0xFF8232),(0xFDC147),(0xFFB144),(0x56C427),(0x56C427)],
+                                [(0xF72C32),(0xF72C32),(0xFF4048),(0xFE5761),(0xED8659),(0xFEB278),(0xFECE6A),(0xFECE6A),(0xFEE566),(0x56C427),(0x56C427)],
+                                [(0xF6255C),(0xF6255C),(0xF9386F),(0xFD585E),(0xF78C84),(0xFFB379),(0xFEDEA1),(0xFEE67C),(0xFFE564),(0x56C427),(0x56C427)],
                                 [(0xF6255C),(0xF93871),(0xF93871),(0xFE9EB9),(0xFE9EB9),(0xFFFFFF),(0xD0E7B3),(0xA5D277),(0x85B957),(0x6EAB34),(0x6EAB34)],
                                 [(0xA82C72),(0xA82C72),(0xC03381),(0xDB5CA1),(0xE8A1C3),(0xD1E5F0),(0xCFDADE),(0x73B8B3),(0x87B958),(0x6EAB34),(0x6EAB34)],
                                 [(0xA82C72),(0xA82C72),(0xC03381),(0x9C3F74),(0xB36893),(0xD1E4F2),(0x91C3E6),(0x91C3E6),(0x219A95),(0x00948E),(0x6BAC34)],
@@ -108,19 +111,6 @@ class action_manager():
         # Convert axis intersection to index.
         valence_index = (int(valence * 5) + 5)
         arousal_index = 10 - (int(arousal * 5) + 5)
-
-        # Speech.
-        # The pitch and volume modifier values need scaled, final value to be determined. e.g. a value of 4 will divide the parameter by 4 to give a +/- of 25% of the default value
-        speech_parameter_scaling_value = 4
-        string_to_say = "I am feeling " + emotion_name
-        scaled_pitch_modifier = 1 + (speech_parameter_lookup_table[arousal_index][valence_index][0] / speech_parameter_scaling_value)
-        # NAO can only increase pitch! So need to check if a pitch reduction required and negate it. Range 1.0 - 4.0.
-        if scaled_pitch_modifier < 1.0:
-            scaled_pitch_modifier = 1.0
-        # NAO volume (gain) range 0.0 - 1.0.
-        scaled_volume_modifier = 0.5 + (speech_parameter_lookup_table[arousal_index][valence_index][1] / speech_parameter_scaling_value)
-        self.tts.setParameter("pitchShift", scaled_pitch_modifier)
-        self.tts.setVolume(scaled_volume_modifier)
         
         # Eyes.        
         hex_eye_colour = eye_colour_lookup_table[arousal_index][valence_index]
@@ -138,7 +128,7 @@ class action_manager():
         # Stance (torso position + arms) - directly proportional to valence
         # Shoulders have a pitch of +2 to -2 radians.
         # Used in absolute mode, central pitch value is 1.4 radians.
-        shoulder_pitch = 1.4 - valence*5 * 0.5
+        shoulder_pitch = 1.4 - valence * 0.5
 
         motion_names.append("LShoulderPitch")
         motion_times.append([0.5, 2, 4])
@@ -149,40 +139,60 @@ class action_manager():
         motion_keys.append([1.4, shoulder_pitch, 1.4])
         
         
-        shoulder_roll = valence * -1.5
+        shoulder_roll = valence * 0.8
         
         motion_names.append("LShoulderRoll")
         motion_times.append([0.5, 2, 4])
-        motion_keys.append([0.5, +shoulder_roll, 0.5])
+        motion_keys.append([0.5, -shoulder_roll, 0.3])
 
         motion_names.append("RShoulderRoll")
         motion_times.append([0.5, 2, 4])
-        motion_keys.append([-0.5, -shoulder_roll, -0.5])
+        motion_keys.append([-0.5, shoulder_roll, -0.3])
 
         # Ankles have a pitch of approx +0.9 to -1.1radians.
         # Used in absolute mode, central pitch value is 0.08 radians.
-        ankle_pitch = 0.08 - valence * 0.05
-
-        motion_names.append("LAnklePitch")
-        motion_times.append([0.5, 2, 4])
-        motion_keys.append([0.08, ankle_pitch, 0.08])
-
-        motion_names.append("RAnklePitch")
-        motion_times.append([0.5, 2, 4])
-        motion_keys.append([0.08, ankle_pitch, 0.08])
+#        ankle_pitch = 0.08 - valence * 0.05
+#
+#        motion_names.append("LAnklePitch")
+#        motion_times.append([0.5, 2, 4])
+#        motion_keys.append([0.08, ankle_pitch, 0.08])
+#
+#        motion_names.append("RAnklePitch")
+#        motion_times.append([0.5, 2, 4])
+#        motion_keys.append([0.08, ankle_pitch, 0.08])
         
 
         # OUTPUTS
         # Speech.
         #self.tts.post.say(string_to_say)
-        # Motion.
-        if self.state_activity == "WAITING_FOR_FEEDBACK" and self.do_it_once == True:
-            self.motion.post.angleInterpolation(motion_names, motion_keys, motion_times, True)
-            self.do_it_once = False
+
         # Eyes.       
         self.leds.fadeRGB("FaceLeds", hex_eye_colour, eye_duration)
-        time.sleep(1.0)
+        time.sleep(0.1)
         #self.leds.reset("FaceLeds")
+        
+        # Motion.
+        if self.state_activity == "WAITING_FOR_FEEDBACK" and self.do_it_once == True:
+            #self.posture.goToPosture("StandInit", 0.3)          
+            self.motion.angleInterpolation(motion_names, motion_keys, motion_times, True)
+            self.motion.waitUntilMoveIsFinished()
+            #self.posture.goToPosture("StandInit", 0.3)
+            self.do_it_once = False
+            
+        if self.activity != 'drawing_nao':
+            # Speech.
+            # The pitch and volume modifier values need scaled, final value to be determined. e.g. a value of 4 will divide the parameter by 4 to give a +/- of 25% of the default value
+            speech_parameter_scaling_value = 4
+            string_to_say = "I am feeling " + emotion_name
+            scaled_pitch_modifier = 1 + (speech_parameter_lookup_table[arousal_index][valence_index][0] / speech_parameter_scaling_value)
+            # NAO can only increase pitch! So need to check if a pitch reduction required and negate it. Range 1.0 - 4.0.
+            if scaled_pitch_modifier < 1.0:
+                scaled_pitch_modifier = 1.0
+            # NAO volume (gain) range 0.0 - 1.0.
+            scaled_volume_modifier = 0.5 + (speech_parameter_lookup_table[arousal_index][valence_index][1] / speech_parameter_scaling_value)
+            self.tts.setParameter("pitchShift", scaled_pitch_modifier)
+            self.tts.setVolume(scaled_volume_modifier)
+
 
         # Reset speech parameters to nominal.
         self.tts.setParameter("pitchShift", 0)
@@ -193,9 +203,13 @@ class action_manager():
         self.state_activity = data.data
         self.do_it_once = True
         
+    def activity_callback(self, data):
+        self.activity = data.data
+        
     
     def stop_request_callback(self, data):
         self.motion.rest()
+        self.leds.reset("FaceLeds")
         rospy.signal_shutdown('Interaction exited')
         
 def main():

@@ -8,6 +8,7 @@ Created on Tue Mar 10 17:37:34 2015
 
 import sys
 import rospy
+import numpy as np
 from std_msgs.msg import Int16, Int32, String, Empty, Float32
 from geometry_msgs.msg import PointStamped, Point
 
@@ -64,35 +65,23 @@ class emotion_manager():
                 
         rospy.Subscriber('stop_learning', Empty, self.stop_request_callback)    #listen for when to stop
         
-        self.pub_engagement = rospy.Publisher('level_engagement', Point, queue_size=10)        
-        
+        self.pub_engagement = rospy.Publisher('level_engagement', Point, queue_size=10)
+        self.pub_activity = rospy.Publisher('activity', String, queue_size=10)  #Publishes the current activity which is performed
+
         # Boundaries of the map
         self.max_n = 10
         self.min_n = -10
         self.key = "key"
         self.step_size = 1    # Size of the step of the current position towards an emotion
+        self.current_time= 0  # Current time in the activity
         
-#        while callback:
-#            self.neutralPos()
-#            rospy.sleep(0.3)
+        self.engagement_history = []
+        self.activity_turn = True
         
-            
         # Simply keeps python from exiting until this node is stopped
         rospy.spin()
         
-        
-#    def neutralPos(self):
-#        direction_x = self.emotional_dictionary['neutral']['x'] - self.current_position['x']
-#        direction_y = self.emotional_dictionary['neutral']['y'] - self.current_position['y']
-#        
-#        sx, sy = self.clampRatio(direction_x, direction_y)
-#            
-#        self.features['neutral']['x'] = self.features['neutral']['x'] + sx
-#        self.features['neutral']['y'] = self.features['neutral']['y'] + sy
-#        
-#        self.weighting()
-#        msg = self.buildMessage()
-#        self.pub_direction.publish(msg)
+    
             
     def buildMessage(self):        
         state = PointStamped()
@@ -100,8 +89,7 @@ class emotion_manager():
         state.point.x = self.current_position['x']
         state.point.y = self.current_position['y']
         
-        return state
-        
+        return state       
     
 #TODO: Less importance to the previous events passing the feature and the weight  
     def weighting(self):        
@@ -128,6 +116,29 @@ class emotion_manager():
         ratio = min (ratio_x, ratio_y);
         
         return (ratio*cx)*self.step_size, (ratio*cy)*self.step_size
+        
+    """
+    If we consider the last 3 probabilities provided by the model
+    but also the time spend in the activity we can reach a decision
+    """
+    def decision_function(self):
+        last_three = self.engagement_history[-3:]
+        mean = sum(last_three)/3
+        
+        # Let at least do 3 trials in 5 min with a bad mean
+        #if mean < 10 and self.current_time > 300 and np.size(self.engagement_history) > 3:
+        if self.current_time > 360:
+            self.engagement_history = self.engagement_history[0:-3]
+            msg = String()
+            if self.activity_turn:
+                msg.data = "drawing_nao"
+                self.activity_turn = False
+            else:
+                pass
+                #msg.data = "joke_nao"
+                #self.activity_turn = True
+            self.pub_activity.publish(msg)
+            
     
     
     #----------------------------------------------CALLLBACKS----------------------------------------------
@@ -164,6 +175,7 @@ class emotion_manager():
         
     
     def time_callback(self, data):
+        self.current_time = data.data
         rospy.loginfo(rospy.get_caller_id() + " Time spend in the same activity: %s", data.data)
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
@@ -278,8 +290,7 @@ class emotion_manager():
         self.pub_direction.publish(msg)        
         
         
-    def response_callback(self, data):
-        
+    def response_callback(self, data):       
         # Convert to seconds
         rt_sec = data.data / 1000
         #bipolar(P_results, sigma)      
@@ -290,16 +301,20 @@ class emotion_manager():
     def writing_callback(self, data):
         myModel = engagement_model()
         myModel.train_model()
+        # TODO: Check why it does not show the plot
         myModel.plot_data()
         
-        # Convert to seconds
+        # From ms. to s. and get Prob of being engaged  
         wt_sec = data.data / 1000
-        
         P_results = myModel.get_engagement(wt_sec)
         
         # Rescale to have a positive and negative engagement where 0 is 50
         engagement_level = int(P_results[0]*100)
         engagement_level = (engagement_level * 2) - 100
+        
+        #Store the result in the history
+        self.engagement_history.append(engagement_level)
+        self.decision_function()              
         
         rospy.loginfo(engagement_level)
         
