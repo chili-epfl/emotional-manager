@@ -14,7 +14,7 @@ from geometry_msgs.msg import PointStamped, Point
 
 from naoqi import ALBroker
 
-from IRT import engagement_model
+#from IRT import engagement_model
 
 NAO_IP = "192.168.1.12"
 
@@ -60,8 +60,8 @@ class emotion_manager():
         rospy.Subscriber("novelty", Float32, self.novelty_callback)             # Something new happen in the scenario
         rospy.Subscriber("activity_time", Int32, self.time_callback)            # For how long the activity was done
         rospy.Subscriber("nb_repetitions", Int16, self.repetitions_callback)    # The number of word repetitions
-        rospy.Subscriber("time_response", Float32, self.response_callback)      # Response time till the child writes
-        rospy.Subscriber("time_writing", Float32, self.writing_callback)        # Writing time during demostration
+        #rospy.Subscriber("time_response", Float32, self.response_callback)      # Response time till the child writes
+        #rospy.Subscriber("time_writing", Float32, self.writing_callback)        # Writing time during demostration
                 
         rospy.Subscriber('stop_learning', Empty, self.stop_request_callback)    #listen for when to stop
         
@@ -298,7 +298,7 @@ class emotion_manager():
         
                           
     # In order to test with a time response of 5 sec: rostopic pub -1 /responseTime std_msgs/Float32 '5'    
-    def writing_callback(self, data):
+    """def writing_callback(self, data):
         myModel = engagement_model()
         myModel.train_model()
         # TODO: Check why it does not show the plot
@@ -306,7 +306,7 @@ class emotion_manager():
         
         # From ms. to s. and get Prob of being engaged  
         wt_sec = data.data / 1000
-        P_results = myModel.get_engagement(wt_sec)
+        P_results = myModel.get_engagement/tt_sec)
         
         # Rescale to have a positive and negative engagement where 0 is 50
         engagement_level = int(P_results[0]*100)
@@ -321,7 +321,7 @@ class emotion_manager():
         # Publish to the map
         point = Point()
         point.x = engagement_level    
-        self.pub_engagement.publish(point)
+        self.pub_engagement.publish(point)"""
         
     
     def stop_request_callback(self, data):

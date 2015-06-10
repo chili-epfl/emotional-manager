@@ -18,6 +18,10 @@
 #include "std_msgs/Int16.h"
 #include "std_msgs/Empty.h"
 #include "std_msgs/Float32.h"
+#include "geometry_msgs/Pose.h"
+#include "geometry_msgs/Point.h"
+#include "geometry_msgs/Quaternion.h"
+#include <tf/tf.h>
 
 #include <sstream>
 #include <vector>
@@ -29,6 +33,9 @@
 #include <math.h>
 #include <string>
 #include <thread>
+
+#include <math.h>       /* cos */
+#define PI 3.14159265
 
 #define MAX_COUNT 100
 char imageFileName[32];
@@ -197,7 +204,7 @@ void novelty(ros::Publisher novelty_pub, std::vector<bool> lookAt,
 }
 
 
-std::vector<bool> lookAt(ros::Publisher lookAt_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg,
+std::vector<bool> lookAt(ros::Publisher head_pos_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg,
                          rectangle face, std::vector<full_object_detection> &contacts){
     std::vector<bool> lookAt(4);
     // Get nose
@@ -230,63 +237,35 @@ std::vector<bool> lookAt(ros::Publisher lookAt_pub, shape_predictor &pose_model,
     bool look_up = southnorth>0.3;
     bool look_down = southnorth<-0.3;
 
-    contact = true;
+    //hack for southnord between -1 and 1 :
+    if(southnorth>0){
+        southnorth = southnorth/0.45;
+    }
+    if(southnorth<0){
+        southnorth = southnorth/0.37;
+    }
 
-    std_msgs::String msg;
-    std::stringstream ss;
+    //convert values to have measure of angles:
+    southnorth = (PI/4)*southnorth - PI/2;
+    estwest = (PI/3)*estwest;
 
-    if(look_right){
-        smile_counter = 0;
-        look_right_counter = look_right_counter + 1;
-        if (look_right_counter > 5){
-            ss << /*"face " << i <<*/ "right";
-            msg.data = ss.str();
-            ROS_INFO("%s", msg.data.c_str());
-            lookAt_pub.publish(msg);
-            contact=false;
-            look_right_counter = 0;
-        }
-    }
-    if(look_left){
-        smile_counter = 0;
-        look_left_counter = look_left_counter + 1;
-        if (look_left_counter > 5){
-            ss << /*"face " << i <<*/ "left";
-            msg.data = ss.str();
-            ROS_INFO("%s", msg.data.c_str());
-            lookAt_pub.publish(msg);
-            contact=false;
-            look_left_counter = 0;
-        }
-    }
-    if(look_up){
-        smile_counter = 0;
-        look_up_counter = look_up_counter + 1;
-        if (look_up_counter > 5){
-            ss << /*"face " << i <<*/ "robot contact";
-            msg.data = ss.str();
-            ROS_INFO("%s", msg.data.c_str());
-            lookAt_pub.publish(msg);
-            contact=false;
-            look_up_counter = 0;
-        }
-    }
-    if(look_down){
-        smile_counter = 0;
-        look_down_counter = look_down_counter + 1;
-        if(look_down_counter > 5){
-            ss << /*"face " << i <<*/ "down";
-            msg.data = ss.str();
-            ROS_INFO("%s", msg.data.c_str());
-            lookAt_pub.publish(msg);
-            contact=false;
-            look_down_counter = 0;
-        }
-    }
-    if(contact){
-        //cout << "contact !!" << endl;
-        contacts.push_back(pose_model(cimg, face));
-    }
+    //get projection (if we want to plot on the window) :
+    //auto x_gaze = sin(estwest)*len/20;
+    //auto y_gaze = sin(southnorth)*wid/20;
+
+    geometry_msgs::Pose head_pos;
+    geometry_msgs::Point nose_point;
+    geometry_msgs::Quaternion orientation;
+
+    orientation = tf::createQuaternionMsgFromRollPitchYaw(0, southnorth, estwest);
+    nose_point.x = 1;//nose.x;
+    nose_point.y = 1;//nose.y;
+    nose_point.z = 1;
+    head_pos.position = nose_point;
+    head_pos.orientation = orientation;
+
+    head_pos_pub.publish(head_pos);
+
     lookAt[0] = look_right;
     lookAt[1] = look_left;
     lookAt[2] = look_up;
@@ -414,7 +393,7 @@ int main(int argc, char **argv)
      * publish on a given topic name.The second parameter to advertise()
      * is the size of the message queue
      */
-    ros::Publisher lookAt_pub = n.advertise<std_msgs::String>("lookAt", 1000);
+    ros::Publisher head_pos_pub = n.advertise<geometry_msgs::Pose>("head_pos", 1000);
     ros::Publisher smile_pub = n.advertise<std_msgs::Empty>("smile", 1000);
     ros::Publisher movement_pub = n.advertise<std_msgs::Int16>("movement", 1000);
     ros::Publisher sizeHead_pub = n.advertise<std_msgs::Int16>("sizeHead", 1000);
@@ -432,7 +411,7 @@ int main(int argc, char **argv)
         myfile.open (filename);
         std::vector<full_object_detection> contacts;
 
-        cv::VideoCapture cap(1);
+        cv::VideoCapture cap(0);
         cap.set(CV_CAP_PROP_FRAME_WIDTH, 640);
         cap.set(CV_CAP_PROP_FRAME_HEIGHT, 360);
 
@@ -490,6 +469,9 @@ int main(int argc, char **argv)
              */
             cv_image<bgr_pixel> cimg(rgbFrames);
 
+            long len = cimg.nr();
+            long wid = cimg.nc();
+
             // Detect faces
 
             std::vector<rectangle> faces = detector(cimg);
@@ -504,7 +486,7 @@ int main(int argc, char **argv)
                 //shapeToPoints(rgbFrames, shape);
 
                 std::vector<bool> lookTowards;
-                lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
+                lookTowards = lookAt(head_pos_pub, pose_model, cimg, faces[i], contacts);
                 sizeHead(sizeHead_pub, pose_model, cimg, faces[i]);
                 smileDetector(smile_pub, pose_model, cimg, faces[i]);
                 novelty(novelty_pub, lookTowards, faces, mu, eps, threshold);

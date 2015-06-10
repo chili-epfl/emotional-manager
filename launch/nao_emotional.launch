@@ -6,4 +6,8 @@
     <node pkg="emotional_manager" type="valence_arousal_map.py" name="valence_arousal_map" output="screen"/>
     <node pkg="emotional_manager" type="vision" name="vision" output="screen"/>
 
+    <node pkg="emotional_manager" type="space_tf_manager.py" name="space_tf_manager" output="screen"/>
+    <node pkg="tf" type="static_transform_publisher" name="base_link_to_camera" args="1 0 0 0 0 0 1 /base_link /camera 100" />
+
+
 </launch>

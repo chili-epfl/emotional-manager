@@ -11,13 +11,11 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   nav_msgs
   message_generation
+  tf
 )
 
 find_package(OpenCV REQUIRED)
-
-set(DLIB_PATH "" CACHE STRING "Path to DLIB")
-include(${DLIB_PATH}/cmake)
-#include(/home/ferran/src/dlib-18.14/dlib/cmake )
+include(/home/alexis/src/dlib-18.15/dlib/cmake)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -88,6 +86,7 @@ include_directories(
    nodes/action_manager.py
    nodes/emotional_manager.py
    nodes/valence_arousal_map.py
+   nodes/space_tf_manager.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
  )
 
