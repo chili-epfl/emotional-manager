@@ -114,7 +114,7 @@ class action_manager():
         
         # Eyes.        
         hex_eye_colour = eye_colour_lookup_table[arousal_index][valence_index]
-        eye_duration = 2.0
+        eye_duration = 0.1
 
         # Motion.
         # Head pitch - inversely proportional to arousal.
@@ -168,7 +168,6 @@ class action_manager():
 
         # Eyes.       
         self.leds.fadeRGB("FaceLeds", hex_eye_colour, eye_duration)
-        time.sleep(0.1)
         #self.leds.reset("FaceLeds")
         
         # Motion.
@@ -190,13 +189,13 @@ class action_manager():
                 scaled_pitch_modifier = 1.0
             # NAO volume (gain) range 0.0 - 1.0.
             scaled_volume_modifier = 0.5 + (speech_parameter_lookup_table[arousal_index][valence_index][1] / speech_parameter_scaling_value)
-            self.tts.setParameter("pitchShift", scaled_pitch_modifier)
-            self.tts.setVolume(scaled_volume_modifier)
+            #self.tts.setParameter("pitchShift", scaled_pitch_modifier)
+            #self.tts.setVolume(scaled_volume_modifier)
 
 
         # Reset speech parameters to nominal.
-        self.tts.setParameter("pitchShift", 0)
-        self.tts.setVolume(0.5)
+        #self.tts.setParameter("pitchShift", 0)
+        #self.tts.setVolume(0.5)
         
                 
     def current_state_callback(self, data):

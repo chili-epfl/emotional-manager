@@ -71,10 +71,11 @@ class emotion_manager():
         # Boundaries of the map
         self.max_n = 10
         self.min_n = -10
+        
         self.key = "key"
         self.step_size = 1    # Size of the step of the current position towards an emotion
         self.current_time= 0  # Current time in the activity
-        
+        self.nb_repetitions = 0
         self.engagement_history = []
         self.activity_turn = True
         
@@ -127,17 +128,31 @@ class emotion_manager():
         
         # Let at least do 3 trials in 5 min with a bad mean
         #if mean < 10 and self.current_time > 300 and np.size(self.engagement_history) > 3:
-        if self.current_time > 360:
-            self.engagement_history = self.engagement_history[0:-3]
-            msg = String()
-            if self.activity_turn:
-                msg.data = "drawing_nao"
-                self.activity_turn = False
-            else:
-                pass
-                #msg.data = "joke_nao"
-                #self.activity_turn = True
+#        if self.current_time > 36000000:
+#            self.engagement_history = self.engagement_history[0:-3]
+#            msg = String()
+#            if self.activity_turn:
+#                msg.data = "drawing_nao"
+#                #self.activity_turn = False
+#            else:
+#                pass
+#                #msg.data = "joke_nao"
+#                #self.activity_turn = True
+#            self.pub_activity.publish(msg)
+        
+        msg = String()
+        if self.nb_repetitions == 14:
+            msg.data = "drawing_nao"
+            #self.activity_turn = False
             self.pub_activity.publish(msg)
+        if self.nb_repetitions == 7:
+            msg.data = "drawing_nao"
+            #self.activity_turn = False
+            self.pub_activity.publish(msg)
+        
+            #msg.data = "joke_nao"
+            #self.activity_turn = True
+        
             
     
     
@@ -202,6 +217,7 @@ class emotion_manager():
 
     def repetitions_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "Repetitions performed by the children: %s", data.data)
+        self.nb_repetitions = self.nb_repetitions + data.data
         #Calculate the new vector to move towards
         direction_x = self.emotional_dictionary['boredom']['x'] - self.current_position['x']
         direction_y = self.emotional_dictionary['boredom']['y'] - self.current_position['y']

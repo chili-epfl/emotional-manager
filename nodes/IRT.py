@@ -103,21 +103,40 @@ class engagement_model():
         self.b = popt[1]
         residuals = self.P_correct - self.func(self.resp_time, self.a, self.b)
         fres = sum(residuals**2)
-        print fres
      
     def plot_data(self):        
         # Plot points.
-        plt.plot(self.resp_time, self.P_correct, '*')
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+
+        #ax.plot(self.resp_time, self.P_correct, '*')
         plt.xlabel('Response Time')
         plt.ylabel('P(correct)');
         
         # Plot curve fitting.
         curvex = np.linspace(0, 10, 100)
         curvey = self.func(curvex, self.a, self.b)
-        plt.plot(self.resp_time, self.P_correct, '*')
-        plt.plot(curvex, curvey, 'r')
-        plt.xlabel('Response Time')
-        plt.ylabel('P(correct)');
+        ax.plot(self.resp_time, self.P_correct, 'og')
+        line = ax.plot(curvex, curvey)
+        setp(line, linewidth=2, color='r')
+        plt.xlabel('Response Time (s)')
+        plt.ylabel('P(correct)')
+        plt.xticks(np.arange(0, 10, 0.5))
+
+        #Grid
+        grid(b=True, which='major', linewidth=0.1, color='k', linestyle='-')
+
+        #Plot vertical lines and text
+        axvline(2, linewidth=1, color='b')        
+        axvline(4.5 , linewidth=1, color='b')
+        axvline(7, linewidth=1, color='b')
+        
+        ax.text(0.75, 0.65, r'R1', fontsize=15)
+        ax.text(3.0, 0.65, r'R2', fontsize=15)
+        ax.text(5.75, 0.65, r'R3', fontsize=15)
+        ax.text(8.75, 0.65, r'R4', fontsize=15)
+        
+        plt.show()
         
     def get_engagement(self, rt):
         # Form of the model: P(correct|rt,L) = u/1+exp^(-a(-rt+b*L))
@@ -126,17 +145,17 @@ class engagement_model():
         P_disengaged = (self.u - P_corr) / self.u        
         # Probability of being engaged
         P_engaged = 1 - P_disengaged        
-        plt.plot(rt, P_corr, 'o')
-        
+        #plt.plot(rt, P_corr, 'o')
+
         return P_engaged, P_disengaged, P_corr
         
  
 # Main function.
-#if __name__ == '__main__':
-#    myModel = engagement_model()
-#    myModel.train_model()
-#    myModel.plot_data()
-#    P_results = myModel.get_engagement(2)
-#    
-#    print P_results[0]
+if __name__ == '__main__':
+    myModel = engagement_model()
+    myModel.train_model()
+    myModel.plot_data()
+    P_results = myModel.get_engagement(4)
+    
+    print P_results
     

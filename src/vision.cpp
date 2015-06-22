@@ -9,8 +9,11 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/video/tracking.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+
 #include <dlib/image_processing/frontal_face_detector.h>
 #include <dlib/image_processing/render_face_detections.h>
+
 #include <dlib/gui_widgets.h>
 
 #include "ros/ros.h"
@@ -30,6 +33,12 @@
 #include <string>
 #include <thread>
 
+/*
+#include <GL/gl.h>
+#include <GL/glu.h>
+#include <GL/freeglut.h>
+*/
+
 #define MAX_COUNT 100
 char imageFileName[32];
 long imageIndex = 0;
@@ -47,6 +56,7 @@ int look_left_counter = 0;
 int look_up_counter = 0;
 int look_down_counter = 0;
 int smile_counter = 0;
+int prevSize = 0;
 bool new_child = false;
 string state = " ";
 image_window win;
@@ -63,6 +73,15 @@ std::map<string, int> partToPoint = {
     {"mouth_right", 48},
     {"mouth_left", 54}
 };
+
+
+double rot[9] = {0};
+std::vector<double> rv(3);
+std::vector<double> tv(3);
+cv::Mat rvec(rv);
+cv::Mat tvec(tv);
+cv::Mat camMatrix;
+cv::Mat op;
 
 
 double tt_tic=0;
@@ -112,7 +131,7 @@ bool get_line_intersection(float p0_x, float p0_y, float p1_x, float p1_y,
     return 0;
 }
 
-
+// Computes the size of the head consideing the vertical and horizontal segments
 void sizeHead(ros::Publisher sizeHead_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face){
     // Get up
     cv::Point2f eyebrow_right = getPointFromPart(pose_model, cimg, face, "eyebrow_right");
@@ -129,14 +148,21 @@ void sizeHead(ros::Publisher sizeHead_pub, shape_predictor &pose_model, cv_image
     // Compute size of the head
     float horizontal = sqrt((right.x-left.x)*(right.x-left.x) + (right.y-left.y)*(right.y-left.y));
     float vertical = sqrt((right.x-up.x)*(right.x-up.x) + (right.y-up.y)*(right.y-up.y));
-    auto size = vertical*horizontal;
+    auto size = int((vertical*horizontal)/1000);
 
-    //cout <<"Head size:"<< size << endl;
-    std_msgs::Int16 msgSizeHead;
-    msgSizeHead.data = int(size/1000);
-    sizeHead_pub.publish(msgSizeHead);
+    if (abs(prevSize - size)> 5){
+        cout <<"Head size:"<< size << endl;
+        std_msgs::Int16 msgSizeHead;
+        msgSizeHead.data = size;
+        sizeHead_pub.publish(msgSizeHead);
+        prevSize = size;
+    }
 }
 
+/*
+ Detects if someone smiled to the robot. I would be better to
+ use Haar detector from openCV depite the computational cost
+*/
 void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face){
 
     // Get mouth
@@ -162,6 +188,10 @@ void smileDetector(ros::Publisher smile_pub, shape_predictor &pose_model, cv_ima
     }
 }
 
+/* To compute the saliency or novelty, it is necessary to consider all the other features
+ * into the EMA value X[]. If the value is greater than the previous EMA with a certain
+ * threshold, a novelty has been detected
+ */
 void novelty(ros::Publisher novelty_pub, std::vector<bool> lookAt,
              std::vector<rectangle> faces, float mu, float eps, float threshold){
 
@@ -196,9 +226,9 @@ void novelty(ros::Publisher novelty_pub, std::vector<bool> lookAt,
     }
 }
 
-
+//TODO: Simplify code in the message sending
 std::vector<bool> lookAt(ros::Publisher lookAt_pub, shape_predictor &pose_model, cv_image<bgr_pixel> &cimg,
-                         rectangle face, std::vector<full_object_detection> &contacts){
+                         rectangle face, std::vector<full_object_detection> &contacts, cv::Mat &rgbFrames){
     std::vector<bool> lookAt(4);
     // Get nose
     cv::Point2f nose = getPointFromPart(pose_model, cimg, face, "nose");
@@ -224,6 +254,36 @@ std::vector<bool> lookAt(ros::Publisher lookAt_pub, shape_predictor &pose_model,
     float sh = (yl-nose.y)/abs(nose.y-yl);
     float h = sqrt((nose.y-yl)*(nose.y-yl) + (nose.x-xl)*(nose.x-xl));
     float southnorth = sh*h/horRight;
+
+
+    /*//hack for southnord between -1 and 1 :
+    if(southnorth>0){
+        southnorth = southnorth/0.45;
+    }
+    if(southnorth<0){
+        southnorth = southnorth/0.37;
+    }
+
+    southnorth = (3.1415/4)*southnorth;
+    estwest = (3.1415/3)*estwest;
+    cout<< "vert: "<< southnorth << " horz: "<<estwest<<endl;*/
+    //Now, southnord and estwest are radian angles corresponding to the angle of head
+    //angle 0,0 => facing camera
+    //angle pi/3,0 => look left
+    //angle 0,pi/3 => look up
+
+    //Pass to degrees
+    estwest = (estwest*180)/3.1415;
+    southnorth = (southnorth*180)/3.1415;
+    //compute the vector
+    float x = cos(estwest)*cos(southnorth);
+    float y = sin(estwest)*cos(southnorth);
+    float z = sin(southnorth);
+
+    double mult =100;
+    //cv::Point2f nose_ax = nose + cv::Point2f(x,y)*mult;
+    //cv::line(rgbFrames, nose, nose_ax, cv::Scalar(255, 0, 0), 8, 1, 0);
+
 
     bool look_left = estwest>0.3;
     bool look_right = estwest<-0.3;
@@ -337,8 +397,8 @@ void amountMovement(ros::Publisher movement_pub, cv::Mat &rgbFrames, cv::Mat &gr
 
         if(x_sum + y_sum > 778000){
             std_msgs::Float32 msgMovement;
-            cout <<"Movement detected! :"<< x_sum + y_sum << endl;
-            msgMovement.data = x_sum + y_sum;
+            cout <<"Movement detected! :"<< (x_sum + y_sum) - 830000 << endl;
+            msgMovement.data = (x_sum + y_sum) - 830000;
             movement_pub.publish(msgMovement);
         }
     }
@@ -357,7 +417,7 @@ cv::VideoWriter prepareVideoRecord(cv::VideoCapture cap){
     ss << "/home/ferran/.ros/visionLog/" << currentDateTime() << ".avi";
     std::string s = ss.str();
 
-    cv::VideoWriter oVideoWriter (s, CV_FOURCC('P','I','M','1'), 20, frameSize, true); //initialize the VideoWriter object
+    cv::VideoWriter oVideoWriter (s, CV_FOURCC('D','I','V','X'), 8, frameSize, true); //initialize the VideoWriter object
 
     if ( !oVideoWriter.isOpened() ) //if not initialize the VideoWriter successfully, exit the program
     {
@@ -367,6 +427,9 @@ cv::VideoWriter prepareVideoRecord(cv::VideoCapture cap){
     return oVideoWriter;
 }
 
+/*This function creates an OpenCV circle per each dlib marker and
+and attach them into the recording videoframe
+*/
 void shapeToPoints(cv::Mat &imgResult, full_object_detection shape){
 
     cv::Point2f currentPoint;
@@ -388,6 +451,163 @@ void stopActivityCallback(const std_msgs::Empty::ConstPtr& msg){
 void newChildCallback(const std_msgs::String::ConstPtr& msg){
     new_child = true;
 }
+
+//Make a class twoDtoThreeD points
+/*void calibration(shape_predictor &pose_model, cv_image<bgr_pixel> &cimg, rectangle face, cv::Mat &rgbFrames){
+
+    std::vector<cv::Point3f > modelPoints;
+    modelPoints.push_back(cv::Point3f(-36.9522f,39.3518f,47.1217f));    //l eye
+    modelPoints.push_back(cv::Point3f(35.446f,38.4345f,47.6468f));              //r eye
+    modelPoints.push_back(cv::Point3f(-0.0697709f,18.6015f,87.9695f)); //nose
+    modelPoints.push_back(cv::Point3f(-27.6439f,-29.6388f,73.8551f));   //l mouth
+    modelPoints.push_back(cv::Point3f(28.7793f,-29.2935f,72.7329f));    //r mouth
+    modelPoints.push_back(cv::Point3f(-87.2155f,15.5829f,-45.1352f));   //l ear
+    modelPoints.push_back(cv::Point3f(85.8383f,14.9023f,-46.3169f));    //r ear
+
+    op = cv::Mat(modelPoints);
+    op = op / 35; //just a little normalization...
+    rvec = cv::Mat(rv);
+    double _d[9] = {1,0,0,
+              0,-1,0,
+             0,0,-1}; //rotation: looking at -z axis
+    cv::Rodrigues(cv::Mat(3,3,CV_64FC1,_d),rvec);
+    tv[0]=0;tv[1]=0;tv[2]=1;
+    tvec = cv::Mat(tv);
+    double _cm[9] = { 700,  0,      double(rgbFrames.size().width/2),
+                      0,    700,    double(rgbFrames.size().height/2),
+                      0,    0,      1 };  //"calibration matrix": center point at center of picture with 700 focal length.
+    camMatrix = cv::Mat(3,3,CV_64FC1,_cm);
+
+    std::vector<cv::Point2f > imagePoints;
+
+    cv::Point2f eye_left = getPointFromPart(pose_model, cimg, face, "eyebrow_left");
+    cv::Point2f eye_right = getPointFromPart(pose_model, cimg, face, "eyebrow_right");
+    cv::Point2f nose = getPointFromPart(pose_model, cimg, face, "nose");
+    cv::Point2f m_left = getPointFromPart(pose_model, cimg, face, "mouth_left");
+    cv::Point2f m_right = getPointFromPart(pose_model, cimg, face, "mouth_right");
+    cv::Point2f left= getPointFromPart(pose_model, cimg, face, "left_side");
+    cv::Point2f right = getPointFromPart(pose_model, cimg, face, "right_side");
+
+    imagePoints.push_back(eye_left);
+    imagePoints.push_back(eye_right);
+    imagePoints.push_back(nose);
+    imagePoints.push_back(m_left);
+    imagePoints.push_back(m_right);
+    imagePoints.push_back(left);
+    imagePoints.push_back(right);
+
+    //make a Mat of the vector<>
+    cv::Mat ip(imagePoints);
+
+    //display points on image
+    //cv::Mat img = imread("image.png");
+    //for(unsigned int i=0;i<imagePoints.size();i++) circle(img,imagePoints[i],2,Scalar(255,0,255),CV_FILLED);
+
+    //"distortion coefficients"... hah!
+    double _dc[] = {0,0,0,0};
+
+    //here's where the magic happens
+    cv::solvePnP(op,ip,camMatrix,cv::Mat(1,4,CV_64FC1,_dc),rvec,tvec,true);
+
+    //decompose the response to something OpenGL would understand.
+    //translation vector is irrelevant, only rotation vector is important
+    cv::Mat rotM(3,3,CV_64FC1);
+
+
+    cv::Rodrigues(rvec,rotM);
+
+    double* _r = rotM.ptr<double>();
+    //printf("rotation mat: \n %.3f %.3f %.3f\n%.3f %.3f %.3f\n%.3f %.3f %.3f\n",
+    //          _r[0],_r[1],_r[2],_r[3],_r[4],_r[5],_r[6],_r[7],_r[8]);
+
+    cv::Mat Vx = (cv::Mat_<double>(3,1) << 1, 0, 0);
+    cv::Mat Vy = (cv::Mat_<double>(3,1) << 0, 1, 0);
+    cv::Mat Vz = (cv::Mat_<double>(3,1) << 0, 0, 1);
+
+    cv::Mat x = rotM*Vx;
+    cv::Mat y = rotM*Vy;
+    cv::Mat z = rotM*Vz;
+    double* _rx = x.ptr<double>();
+    //printf("x mat: \n %.3f %.3f %.3f\n",
+    //          _rx[0],_rx[1],_rx[2]);
+    double* _ry = y.ptr<double>();
+    //printf("y mat: \n %.3f %.3f %.3f\n",
+    //          _ry[0],_ry[1],_ry[2]);
+    double* _rz = z.ptr<double>();
+    //printf("z mat: \n %.3f %.3f %.3f\n",
+    //          _rz[0],_rz[1],_rz[2]);
+
+    double mult =100;
+
+    cv::Point2f nose_ax = nose + cv::Point2f(_rx[0],_rx[1])*mult;
+    cv::Point2f nose_ay = nose + cv::Point2f(_ry[0],_ry[1])*mult;
+    cv::Point2f nose_az = nose + cv::Point2f(_rz[0],_rz[1])*mult;
+
+    cv::line(rgbFrames, nose, nose_ax, cv::Scalar(255, 0, 0), 8, 1, 0);
+    cv::line(rgbFrames, nose, nose_ay, cv::Scalar(0, 255, 0), 8, 1, 0);
+    cv::line(rgbFrames, nose, nose_az, cv::Scalar(0, 0, 255), 8, 1, 0);
+
+
+    float focalLength = 700.0f;
+    cv::Mat cameraMatrix = (cv::Mat_<float>(3,3) <<
+        focalLength,    0,              rgbFrames.size().width/2,
+        0,              focalLength,    rgbFrames.size().height/2,
+        0,              0,              1
+    );
+
+    cv::Mat projectionMat = cv::Mat::zeros(4,4,CV_64FC1);
+    cameraMatrix.copyTo(projectionMat(cv::Rect(0,0,3,3)));
+    cv::Matx44f projection = projectionMat;
+    projection(3,2) = 1;
+
+    cv::Mat transformationMat = cv::Mat::zeros(4,4,CV_64FC1);
+    rotM.copyTo(transformationMat(cv::Rect(0,0,3,3)));
+    cv::Matx44f transformation = transformationMat;
+
+    transformation(3,3)=1;
+
+            static const float DEFAULT_SIZE = 20.f;
+            static const cv::Vec4f UNITS[4] {
+                {0.f, 0.f, 0.f, 1.f},
+                {DEFAULT_SIZE, 0.f, 0.f, 1.f},
+                {0.f, DEFAULT_SIZE, 0.f, 1.f},
+                {0.f, 0.f, DEFAULT_SIZE, 1.f},
+            };
+
+
+            cv::Vec4f referential[4] = {
+                projection*transformation*UNITS[0],
+                projection*transformation*UNITS[1],
+                projection*transformation*UNITS[2],
+                projection*transformation*UNITS[3],
+            };
+
+            std::vector<cv::Point2f> t2DPoints;
+            for (auto homogenousPoint : referential)
+                t2DPoints.push_back(cv::Point2f(
+                    homogenousPoint[0]/homogenousPoint[3],
+                    homogenousPoint[1]/homogenousPoint[3]));
+
+            static const int SHIFT = 2;
+            static const float PRECISION = 1<<SHIFT;
+            static const std::string AXIS_NAMES[3] = { "x", "y", "z" };
+            static const cv::Scalar AXIS_COLORS[3] = {
+                {0,0,255},{0,255,0},{255,0,0},
+            };
+            for (int i : {1,2,3}) {
+                cv::line(
+                    rgbFrames,
+                    PRECISION*t2DPoints[0],
+                    PRECISION*t2DPoints[i],
+                    AXIS_COLORS[i-1],
+                    1, CV_AA, SHIFT);
+
+                cv::putText(rgbFrames, AXIS_NAMES[i-1], t2DPoints[i],
+                            cv::FONT_HERSHEY_SIMPLEX, 0.5f, AXIS_COLORS[i-1]);
+            }
+}*/
+
+
 
 int main(int argc, char **argv)
 {
@@ -431,8 +651,8 @@ int main(int argc, char **argv)
         auto filename = argv[1];
         myfile.open (filename);
         std::vector<full_object_detection> contacts;
-
-        cv::VideoCapture cap(1);
+        //"/home/ferran/Desktop/GT_ISG/4_Gabriel/2015-05-06_10:50:53.avi"
+        cv::VideoCapture cap(0);
         cap.set(CV_CAP_PROP_FRAME_WIDTH, 640);
         cap.set(CV_CAP_PROP_FRAME_HEIGHT, 360);
 
@@ -504,15 +724,18 @@ int main(int argc, char **argv)
                 //shapeToPoints(rgbFrames, shape);
 
                 std::vector<bool> lookTowards;
-                lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts);
+                lookTowards = lookAt(lookAt_pub, pose_model, cimg, faces[i], contacts, rgbFrames);
                 sizeHead(sizeHead_pub, pose_model, cimg, faces[i]);
                 smileDetector(smile_pub, pose_model, cimg, faces[i]);
                 novelty(novelty_pub, lookTowards, faces, mu, eps, threshold);
+
+                //3D pose  estimation
+                //calibration(pose_model, cimg, faces[i], rgbFrames);
             }
 
             //Lets put the markers to the video
             //oVideoWriter.write(rgbFrames);
-
+            //Simplify EMA value calulation and make a function
             if( faces.size() == 0){
                 std::vector<float> X(6,0);
                 auto temp = EMA;
